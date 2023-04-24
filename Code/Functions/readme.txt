@@ -1,0 +1,1 @@
+In this folder raw code can be found in .py files. The functions will be ready to execute. Additional documentation if necessary will be added.

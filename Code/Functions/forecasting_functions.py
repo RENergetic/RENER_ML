@@ -197,6 +197,7 @@ def Train_Transformer(data, split_proportion, diff_time=60, num_days=1,
         random_state = 42,
         log_tensorboard = True,
         force_reset = True,
+        save_checkpoints=True,
     )
 
     my_model.fit(

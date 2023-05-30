@@ -9,6 +9,9 @@ def ManageDateTime(ds_obj):
 class InvalidArgument(Exception):
     "Input Either City name or Lat AND Lon for city"
     pass
+
+
+
 def GetWeatherData(city = "None", lon = "no", lat= "no", start_date= "yesterday", end_date= "today"):
 
     # Input city or lat/lon + start date and end date

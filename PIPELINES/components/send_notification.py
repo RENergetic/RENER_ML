@@ -4,7 +4,6 @@ def SendNotification(forecast_data_path: InputPath(str), threshold_data_path: In
     
     import json 
     import pandas as pd
-    from discord_webhook import DiscordWebhook
     import maya
     from datetime import datetime
     import requests
@@ -125,11 +124,9 @@ def SendNotification(forecast_data_path: InputPath(str), threshold_data_path: In
             print(dict_post)
             raise ValueError
 
-        url_disc = "https://discord.com/api/webhooks/1002537248622923816/_9XY9Hi_mjzh2LTVqnmSKXlIFJ5rgBO2b8xna5pynUrzALgtC4aXSFq89uMdlW_v-ZzT"
         message = "Anomaly detect between {date_from} and {date_to} to asset {asset_name}. Response of Notification {status_code}".\
             format(date_from = date_from, date_to = date_to, status_code = status_code, asset_name = asset_name)
-        webhook = DiscordWebhook(url = url_disc, content = message)
-        webhook.execute()
+        ic(message)
 
         return response, status_code
 

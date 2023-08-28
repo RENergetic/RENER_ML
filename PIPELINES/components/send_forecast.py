@@ -1,7 +1,6 @@
 from kfp.components import InputPath
 
 def SendForecast(input_forecast_data_path: InputPath(str),url_pilot:str, pilot_name:str, asset_name : str, measurement_name: str, key_measurement: str, num_days):
-    from discord_webhook import DiscordWebhook
     import json
     import pandas as pd
     from icecream import ic
@@ -240,21 +239,17 @@ def SendForecast(input_forecast_data_path: InputPath(str),url_pilot:str, pilot_n
             status_code = PostData(data_post, url_pilot, pilot_name)
 
         except:
-            url_disc = "https://discord.com/api/webhooks/1002537248622923816/_9XY9Hi_mjzh2LTVqnmSKXlIFJ5rgBO2b8xna5pynUrzALgtC4aXSFq89uMdlW_v-ZzT"
             message = "Error in updating value for measurement name: {measurement_name} in asset: {asset_name} in time {time_pred}"\
                 .format(measurement_name = "electricity_meter", asset_name = asset_name, time_pred = data_post["fields"]["time"])
-            webhook = DiscordWebhook(url = url_disc, content = message)
-            webhook.execute()
+            ic(message)
             status_code = 400
         
         if status_code > 299:
             ic(time_)
             ic(value)
-            url_disc = "https://discord.com/api/webhooks/1002537248622923816/_9XY9Hi_mjzh2LTVqnmSKXlIFJ5rgBO2b8xna5pynUrzALgtC4aXSFq89uMdlW_v-ZzT"
             message = "Error in sending the value for measurement name: {measurement_name} in asset: {asset_name} in time {time_pred}"\
                 .format(measurement_name = measurement_name, asset_name = asset_name, time_pred = data_post["fields"]["time"])
-            webhook = DiscordWebhook(url = url_disc, content = message)
-            webhook.execute()
+            ic(message)
             if len(values_not_ok) == 0:
                 print(data_post)
                 print(url_pilot)

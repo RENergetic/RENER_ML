@@ -9,7 +9,6 @@ def GetData(measurement_name: str, min_date: str, max_date: str,url_pilot : str,
     import maya # To REQUIREMENTS
     from tqdm import tqdm
     from icecream import ic
-    from discord_webhook import DiscordWebhook
     from retry import retry # TO REQUIREMENTS
 
     #Functions definitions
@@ -182,10 +181,8 @@ def GetData(measurement_name: str, min_date: str, max_date: str,url_pilot : str,
         ic(data.shape[0])
 
         if data.shape[0] == 0:
-            url_disc = "https://discord.com/api/webhooks/1002537248622923816/_9XY9Hi_mjzh2LTVqnmSKXlIFJ5rgBO2b8xna5pynUrzALgtC4aXSFq89uMdlW_v-ZzT"
             message = "Not enough data for {measurement_name}".format(measurement_name = measurement_name)
-            webhook = DiscordWebhook(url = url_disc, content = message)
-            webhook.execute()
+            ic(message)
             
             raise ValueError("Void data to forecast")
 

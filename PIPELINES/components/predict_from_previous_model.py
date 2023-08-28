@@ -5,7 +5,6 @@ def PredictFromPreviousModel(input_data_path:InputPath(str), input_weather_path:
         forecast_data_path: OutputPath(str)):
 
     import maya
-    from discord_webhook import DiscordWebhook
     import json
     from icecream import ic
     import requests

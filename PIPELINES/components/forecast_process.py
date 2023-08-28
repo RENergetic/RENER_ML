@@ -20,7 +20,6 @@ def ForecastProcess(input_data_path: InputPath(str), input_weather_path: InputPa
     ):
 
     import maya
-    from discord_webhook import DiscordWebhook
     import json
     from icecream import ic
     import requests
@@ -54,10 +53,7 @@ def ForecastProcess(input_data_path: InputPath(str), input_weather_path: InputPa
         for obj_ in list_objects:
             ic(obj_._object_name)
     except:
-        url_disc = "https://discord.com/api/webhooks/1002537248622923816/_9XY9Hi_mjzh2LTVqnmSKXlIFJ5rgBO2b8xna5pynUrzALgtC4aXSFq89uMdlW_v-ZzT"
-        message = "Cannot access minio server correctly - read data."
-        webhook = DiscordWebhook(url = url_disc, content = message)
-        webhook.execute()
+        ic("Cannot access minio server correctly - read data.")
     
 
     def ForecastData(data, asset_name, measurement_name, metrics_list, measures_per_hour, diff_time, weather_data ,mode_prophet,daily_seasonality, weekly_seasonality,mode = "no notifications"):
@@ -173,10 +169,9 @@ def ForecastProcess(input_data_path: InputPath(str), input_weather_path: InputPa
             .format(pilot = pilot_name,domain = measurement_name, asset = asset_name)
             s3.Bucket('test-pf').put_object(Key=f_name, Body=data)
 
-            url_disc = "https://discord.com/api/webhooks/1002537248622923816/_9XY9Hi_mjzh2LTVqnmSKXlIFJ5rgBO2b8xna5pynUrzALgtC4aXSFq89uMdlW_v-ZzT"
             message = "Model sent to tebi for {measurement_name} - {asset_name}".format(measurement_name = measurement_name, asset_name = asset_name)
-            webhook = DiscordWebhook(url = url_disc, content = message)
-            webhook.execute()
+            ic(message)
+
         def Predict_CatBoost(catboost_model, data_ds, last_cummulative_value, num_days, measures_per_hour, diff_time, cat_features_names, names_prevs_vars):
             data_ds["yhat"] = last_cummulative_value
             for day_ in range(num_days):
@@ -367,10 +362,8 @@ def ForecastProcess(input_data_path: InputPath(str), input_weather_path: InputPa
                     ),
                 )
             except:
-                url_disc = "https://discord.com/api/webhooks/1002537248622923816/_9XY9Hi_mjzh2LTVqnmSKXlIFJ5rgBO2b8xna5pynUrzALgtC4aXSFq89uMdlW_v-ZzT"
                 message = "Model not saved for {measurement_name} - {asset_name}".format(measurement_name = measurement_name, asset_name = asset_name)
-                webhook = DiscordWebhook(url = url_disc, content = message)
-                webhook.execute()
+                ic(message)
 
                 s3 = boto3.resource(
                     service_name='s3',
@@ -388,10 +381,8 @@ def ForecastProcess(input_data_path: InputPath(str), input_weather_path: InputPa
                 .format(pilot = pilot_name,domain = measurement_name, asset = asset_name)
                 s3.Bucket('test-pf').put_object(Key=f_name, Body=data)
 
-                url_disc = "https://discord.com/api/webhooks/1002537248622923816/_9XY9Hi_mjzh2LTVqnmSKXlIFJ5rgBO2b8xna5pynUrzALgtC4aXSFq89uMdlW_v-ZzT"
                 message = "Model sent to tebi for {measurement_name} - {asset_name}".format(measurement_name = measurement_name, asset_name = asset_name)
-                webhook = DiscordWebhook(url = url_disc, content = message)
-                webhook.execute()
+                ic(message)
 
         # LSTM Functions
         def Train_LSTM(data, split_proportion, diff_time, num_days=1, 
@@ -551,10 +542,8 @@ def ForecastProcess(input_data_path: InputPath(str), input_weather_path: InputPa
                     ),
                 )
             except:
-                url_disc = "https://discord.com/api/webhooks/1002537248622923816/_9XY9Hi_mjzh2LTVqnmSKXlIFJ5rgBO2b8xna5pynUrzALgtC4aXSFq89uMdlW_v-ZzT"
                 message = "Model not saved for {measurement_name} - {asset_name}".format(measurement_name = measurement_name, asset_name = asset_name)
-                webhook = DiscordWebhook(url = url_disc, content = message)
-                webhook.execute()
+                ic(message)
 
                 s3 = boto3.resource(
                     service_name='s3',
@@ -572,10 +561,8 @@ def ForecastProcess(input_data_path: InputPath(str), input_weather_path: InputPa
                 .format(pilot = pilot_name,domain = measurement_name, asset = asset_name)
                 s3.Bucket('test-pf').put_object(Key=f_name, Body=data)
 
-                url_disc = "https://discord.com/api/webhooks/1002537248622923816/_9XY9Hi_mjzh2LTVqnmSKXlIFJ5rgBO2b8xna5pynUrzALgtC4aXSFq89uMdlW_v-ZzT"
                 message = "Model sent to tebi for {measurement_name} - {asset_name}".format(measurement_name = measurement_name, asset_name = asset_name)
-                webhook = DiscordWebhook(url = url_disc, content = message)
-                webhook.execute()
+                ic(message)
 
 
         ############
@@ -719,19 +706,14 @@ def ForecastProcess(input_data_path: InputPath(str), input_weather_path: InputPa
             endpoint_url='https://s3.tebi.io'
         )
         s3.Bucket('test-pf').put_object(Key=f_name, Body=data_to_send)
-        url_disc = "https://discord.com/api/webhooks/1002537248622923816/_9XY9Hi_mjzh2LTVqnmSKXlIFJ5rgBO2b8xna5pynUrzALgtC4aXSFq89uMdlW_v-ZzT"
         message = "Data File: {f_name} Saved to Tebi".format(f_name = f_name)
-        webhook = DiscordWebhook(url = url_disc, content = message)
-        webhook.execute()
+        ic(message)
     except:
-        url_disc = "https://discord.com/api/webhooks/1002537248622923816/_9XY9Hi_mjzh2LTVqnmSKXlIFJ5rgBO2b8xna5pynUrzALgtC4aXSFq89uMdlW_v-ZzT"
         message = "Unable to save data to tebi"
-        webhook = DiscordWebhook(url = url_disc, content = message)
-        webhook.execute()
+        ic(message)
 
         message = "Values for {asset_name}: {list_values}".format(asset_name = asset_name,list_values = forecasted_data.yhat.tolist())
-        webhook = DiscordWebhook(url = url_disc, content = message)
-        webhook.execute()
+        ic(message)
 
     forecasted_data["yhat"] = forecasted_data["yhat"].apply(lambda x : max(x,0))
 
@@ -758,7 +740,5 @@ def ForecastProcess(input_data_path: InputPath(str), input_weather_path: InputPa
     
 
 
-    url_disc = "https://discord.com/api/webhooks/1002537248622923816/_9XY9Hi_mjzh2LTVqnmSKXlIFJ5rgBO2b8xna5pynUrzALgtC4aXSFq89uMdlW_v-ZzT"
     message = "Forecasting done for {domain} and asset name : {asset_name}".format(domain = domain_, asset_name = asset_name)
-    webhook = DiscordWebhook(url = url_disc, content = message)
-    webhook.execute()
+    ic(message)

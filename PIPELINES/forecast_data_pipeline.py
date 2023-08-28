@@ -54,9 +54,9 @@ def REN_Forecast_Test_Pipeline(url_pilot,
 
     env_var = V1EnvVar(name='HOME', value='/tmp')
     download_data_op = comp.create_component_from_func(
-        GetData, packages_to_install = ["requests", "numpy", "maya","pandas", "icecream", "tqdm", "discord-webhook", "retry"], output_component_file = "download_data_op_component.yaml")
+        GetData, packages_to_install = ["requests", "numpy", "maya","pandas", "icecream", "tqdm", "retry"], output_component_file = "download_data_op_component.yaml")
     download_weather_open_meteo_op = comp.create_component_from_func(
-        DownloadWeatherData_OpenMeteo, output_component_file= "open_meteo_component.yaml", packages_to_install=["requests", "numpy", "maya","pandas", "icecream", "tqdm", "discord-webhook", "retry", "pyarrow"]
+        DownloadWeatherData_OpenMeteo, output_component_file= "open_meteo_component.yaml", packages_to_install=["requests", "numpy", "maya","pandas", "icecream", "tqdm", "retry", "pyarrow"]
     )
     download_weather_influx_db_op = comp.create_component_from_func(
         DownloadDataFromInfluxDB, output_component_file="weather_influx_db_component.yaml", packages_to_install=["pandas", "pyarrow"]
@@ -81,16 +81,16 @@ def REN_Forecast_Test_Pipeline(url_pilot,
         PredictFromPreviousModel, packages_to_install= [], base_image= "adcarras/ren-docker-forecast:0.0.1", output_component_file= "forecast_from_previous.yaml"
     )
     check_send_forecast_op = comp.create_component_from_func(
-        CheckSendForecast, packages_to_install=["discord-webhook"], output_component_file= "check_send_forecast_component.yaml"
+        CheckSendForecast, packages_to_install=[], output_component_file= "check_send_forecast_component.yaml"
     )
-    send_forecast_op = comp.create_component_from_func(SendForecast, packages_to_install=["requests", "numpy", "maya","pandas", "icecream", "discord-webhook", "tqdm", "minio", "boto3"], output_component_file= "send_forecast_comp.yaml")
+    send_forecast_op = comp.create_component_from_func(SendForecast, packages_to_install=["requests", "numpy", "maya","pandas", "icecream", "tqdm", "minio", "boto3"], output_component_file= "send_forecast_comp.yaml")
 
     check_send_notification_op = comp.create_component_from_func(
         CheckSendNotification, output_component_file= "check_send_notification.yaml"
     )
 
     send_notification_op = comp.create_component_from_func(
-        SendNotification, packages_to_install=["pandas", "discord-webhook", "maya", "fuckit", "icecream"],output_component_file="send_notification.yaml"
+        SendNotification, packages_to_install=["pandas", "maya", "fuckit", "icecream"],output_component_file="send_notification.yaml"
     )
 
     # BEGIN PIPELINE DEFINITION

@@ -728,7 +728,7 @@ def ForecastProcess(input_data_path: InputPath(str), input_weather_path: InputPa
     forecasted_data.to_csv(forecast_data_path, index = False)
 
 
-    domain_ = "electricity"
+    domain_ = "electricity" # TODO: Wouldn't it be better to define domain_ as measurement_name?
 
     with open("/tmp/metrics_{domain}.json".format(domain = domain_), "w") as file:
         json.dump(metrics_list, file)

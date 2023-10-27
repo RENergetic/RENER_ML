@@ -719,7 +719,11 @@ def ForecastProcess(input_data_path: InputPath(str), input_weather_path: InputPa
         message = "Values for {asset_name}: {list_values}".format(asset_name = asset_name,list_values = forecasted_data.yhat.tolist())
         ic(message)
 
-    forecasted_data["yhat"] = forecasted_data["yhat"].apply(lambda x : max(x,0))
+    try:
+        forecasted_data["yhat"] = forecasted_data["yhat"].apply(lambda x : max(x,0))
+    except KeyError:
+        forecasted_data["y"] = forecasted_data["y"].apply(lambda x : max(x,0))
+        forecasted_data.columns = ["ds", "yhat"]
 
     forecasted_data.to_csv(forecast_data_path, index = False)
 

@@ -587,7 +587,7 @@ def ForecastProcess(input_data_path: InputPath(str), input_weather_path: InputPa
             # Train Prophet
             print("Training Prophet")
             print(maya.now().rfc2822())
-            forecast_prophet, model = Train_Prophet(train_data, num_days, measures_per_hour, diff_time, weather_data, mode_prophet, daily_seasonality, weekly_seasonality)
+            forecast_prophet, model_prophet = Train_Prophet(train_data, num_days, measures_per_hour, diff_time, weather_data, mode_prophet, daily_seasonality, weekly_seasonality)
             metrics_list_prophet = GetMetricsProphet(forecast_prophet,train_data, test_data, num_days, dict_assets, metrics_list, date_train)
             
             # Train LSTM
@@ -596,7 +596,7 @@ def ForecastProcess(input_data_path: InputPath(str), input_weather_path: InputPa
 
             try:
                 ic(diff_time)
-                forecast_lstm, forecast_test, model = Train_LSTM(data=train_data, split_proportion=0.9, diff_time=diff_time,
+                forecast_lstm, forecast_test, model_lstm = Train_LSTM(data=train_data, split_proportion=0.9, diff_time=diff_time,
                                                             num_days=num_days, measures_per_hour=measures_per_hour, 
                                                             n_epochs=25)
                 metrics_list_lstm = GetMetricsLSTM(forecast_lstm, forecast_test, train_data, test_data, num_days, dict_assets, metrics_list)
@@ -636,10 +636,10 @@ def ForecastProcess(input_data_path: InputPath(str), input_weather_path: InputPa
 
             ###########
             
-            SaveModelProphet(model, measurement_name, asset_name, pilot_name)
+            SaveModelProphet(model_prophet, measurement_name, asset_name, pilot_name)
 
             try:
-                SaveModelLSTM(model, measurement_name, asset_name, pilot_name)
+                SaveModelLSTM(model_lstm, measurement_name, asset_name, pilot_name)
             except:
                 print("LSTM Model Not Saved")
 

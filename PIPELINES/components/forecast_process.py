@@ -395,6 +395,10 @@ def ForecastProcess(input_data_path: InputPath(str), input_weather_path: InputPa
 
             if not (0 < split_proportion < 1):
                 raise ValueError("The split_proportion must be a float between 0 and 1.")
+            
+            # datetime and freq must be set for the time series to be usable by darts
+            data["ds"] = pd.to_datetime(data["ds"])
+            data = data.set_index("ds").asfreq("{minutes}T".format(minutes=diff_time)).reset_index()
 
             # fill missing values with the last available value
             data = data.fillna(method='ffill')

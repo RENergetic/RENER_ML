@@ -83,12 +83,13 @@ def SendForecast(input_forecast_data_path: InputPath(str),url_pilot:str, pilot_n
                 if dict_["name"] == asset_name:
                     for meas in dict_["measurements"]:
                         if meas["sensor_name"] == measurement_name:
-                            print("Measurement Found")
-                            domain_ = meas["domain"]
-                            direction = meas["direction"]
-                            type_ = meas["type"]["name"]
+                            if meas["type"]["name"] == key_measurement:
+                                print("Measurement Found")
+                                domain_ = meas["domain"]
+                                direction = meas["direction"]
+                                type_ = meas["type"]["name"]
 
-                            break
+                                break
 
         
         return domain_, direction, type_

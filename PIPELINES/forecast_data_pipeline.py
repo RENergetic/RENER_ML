@@ -23,6 +23,9 @@ from components.send_forecast import SendForecast
 from components.check_send_notification import CheckSendNotification
 from components.send_notification import SendNotification
 
+# NEW Components
+from components.train_forecast_prophet import ForecastProphet
+
 def REN_Forecast_Test_Pipeline(url_pilot,
     diff_time:int,
     filter_vars:list = [],
@@ -75,6 +78,8 @@ def REN_Forecast_Test_Pipeline(url_pilot,
     process_data_op = comp.create_component_from_func(
         ProcessData, packages_to_install= ["maya", "pandas", "icecream", "tqdm"], output_component_file= "process_data_op_component.yaml"
     )
+
+    
     forecast_and_train_data_op = comp.create_component_from_func(
         ForecastProcess, packages_to_install = [],base_image= "adcarras/ren-docker-forecast:0.0.1", output_component_file = "forecast_data_op_component.yaml")
     forecast_data_op = comp.create_component_from_func(
@@ -133,24 +138,16 @@ def REN_Forecast_Test_Pipeline(url_pilot,
                                     .set_cpu_request('2')
                                     .set_cpu_limit('4'))
             with dsl.Condition(check_forecast_task.output == True):
-                forecast_train_task = (forecast_and_train_data_op(process_task.output, download_weather_open_meteo_task.output,
-                measurement, 
-                url, 
-                access_key, 
-                secret_key, 
-                mode,
-                url_pilot,
-                diff_time,
-                pilot_name,
-                send_forecast,
-                asset,
-                num_days,
-                mode_prophet, daily_seasonality, weekly_seasonality).add_env_variable(env_var)
+                forecast_train_task = (
+                ForecastProphet(
+                    process_task.output, download_weather_open_meteo_task.output,  diff_time, num_days
+                ).add_env_variable(env_var)
                 .set_memory_request('2Gi')
                 .set_memory_limit('4Gi')
                 .set_cpu_request('2')
                 .set_cpu_limit('4')
                 )
+
 
                 with dsl.Condition(check_send_forecast_task.output == True):
                     send_forecast_task = send_forecast_op(forecast_train_task.outputs["forecast_data"], url_pilot, pilot_name, asset, measurement, key_measurement, num_days)

@@ -7,6 +7,7 @@ def ForecastProphet(input_data_path: InputPath(str), input_weather_path: InputPa
 #    secret_key,
     diff_time,
     num_days,
+    asset_name,
 #    mlpipeline_metrics_path: OutputPath('Metrics'),
     forecast_data_path: OutputPath(str),
     model_saved_path: OutputPath(str)
@@ -162,9 +163,11 @@ def ForecastProphet(input_data_path: InputPath(str), input_weather_path: InputPa
         future["ds"] = future["ds"].apply(str)
         future = pd.merge(future, weather_data, on = "ds")
         forecast = model.predict(future)
-
-        return forecast[["ds", "yhat"]]
-
+        forecast = forecast[["ds", "yhat"]]
+        forecast.columns = ["ds", "yhat_prophet"]
+        forecast["ds"] = forecast["ds"].apply(str)
+        return forecast
+    
     def TrainAndPredictProphet(train_data, weather_data, freq_hourly, days_ahead, **kwargs):
         """
         
@@ -227,9 +230,12 @@ def ForecastProphet(input_data_path: InputPath(str), input_weather_path: InputPa
         data_str = json.load(file)
     
     data = pd.DataFrame(data_str)
-    weather_data = pd.read_feather(input_weather_path)
 
+    weather_data = pd.read_feather(input_weather_path)
+    
     freq_hourly = 60/diff_time
+
+    data = data[data.asset_name == asset_name]
 
     pred_test, model = TrainAndPredictProphet(data, weather_data, freq_hourly, num_days)
 

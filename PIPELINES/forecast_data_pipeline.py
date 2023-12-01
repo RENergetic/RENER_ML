@@ -1,10 +1,7 @@
-import kfp
 
-from typing import NamedTuple
 import kfp.components as comp
 from kfp import compiler, dsl
 from kfp import dsl
-from kfp.components import InputPath, OutputPath
 from kubernetes.client.models import V1EnvVar
 
 import time
@@ -16,21 +13,25 @@ from components.calculate_forecast_metrics import CalculateForecastMetrics
 from components.get_thresholds import GetThresholds
 from components.get_list_assets import Get_List_Assets
 from components.process_data import ProcessData
-from components.forecast_process import ForecastProcess
-from components.predict_from_previous_model import PredictFromPreviousModel
 from components.check_send_forecast import CheckSendForecast
 from components.send_forecast import SendForecast
 from components.check_send_notification import CheckSendNotification
 from components.send_notification import SendNotification
 
+
+
+
 # NEW Components
 from components.train_forecast_prophet import ForecastProphet
+from components.load_prophet_forecast import LoadAndForecastProphet
+from components.download_file_minio import DownloadFileMinio
+from components.merge_forecasts import MergeForecast
 
 def REN_Forecast_Test_Pipeline(url_pilot,
     diff_time:int,
     filter_vars:list = [],
     filter_case:list = [],
-    url = "minio-kubeflow-renergetic.apps.dcw1-test.paas.psnc.pl",
+    path_minio = "minio-kubeflow-renergetic.apps.dcw1-test.paas.psnc.pl",
     access_key="minio",
     secret_key="DaTkKc45Hxr1YLR4LxR2xJP2",
     min_date = "5 May 2023",
@@ -79,12 +80,22 @@ def REN_Forecast_Test_Pipeline(url_pilot,
         ProcessData, packages_to_install= ["maya", "pandas", "icecream", "tqdm"], output_component_file= "process_data_op_component.yaml"
     )
 
-    
-    forecast_and_train_data_op = comp.create_component_from_func(
-        ForecastProcess, packages_to_install = [],base_image= "adcarras/ren-docker-forecast:0.0.1", output_component_file = "forecast_data_op_component.yaml")
-    forecast_data_op = comp.create_component_from_func(
-        PredictFromPreviousModel, packages_to_install= [], base_image= "adcarras/ren-docker-forecast:0.0.1", output_component_file= "forecast_from_previous.yaml"
+    download_file_minio_op = comp.create_component_from_func(
+        DownloadFileMinio, packages_to_install=["minio"], output_component_file= "download_minio_component.yaml"
     )
+
+    train_prophet_op = comp.create_component_from_func(
+        ForecastProphet, base_image= "adcarras/ren-docker-forecast:0.0.1", output_component_file= "forecast_prophet_component.yaml"
+    )
+
+    load_and_forecast_prophet_op = comp.create_component_from_func(
+        LoadAndForecastProphet, base_image= "adcarras/ren-docker-forecast:0.0.1", output_component_file= "load_and_forecast_prophet.yaml"
+    )
+
+    merge_forecast_op = comp.create_component_from_func(
+        MergeForecast, packages_to_install=["pandas"], output_component_file="merge_forecast_component.yaml"
+    )
+
     check_send_forecast_op = comp.create_component_from_func(
         CheckSendForecast, packages_to_install=[], output_component_file= "check_send_forecast_component.yaml"
     )
@@ -127,42 +138,44 @@ def REN_Forecast_Test_Pipeline(url_pilot,
         
         get_list_task = (get_list_op(measurement, dict_assets))
 
-        check_send_forecast_task = check_send_forecast_op(send_forecast)
-        check_send_notification_task = check_send_notification_op(mode)
-
         
         with dsl.ParallelFor(get_list_task.output) as asset:
+            
+            # PROPHET SIDE - CHANGE THE FUNCTION FOR A COMPONENT AND LOAD COMPONENT
+
             check_forecast_task = (check_metrics_forecast_op(download_task.outputs["output_data_metric"], asset, mae_threshold = mae_threshold)
                                    .set_memory_request('2Gi')
                                     .set_memory_limit('4Gi')
                                     .set_cpu_request('2')
                                     .set_cpu_limit('4'))
             with dsl.Condition(check_forecast_task.output == True):
-                forecast_train_task = (
-                ForecastProphet(
-                    process_task.output, download_weather_open_meteo_task.output,  diff_time, num_days
+                forecast_train_prophet_task = (
+                train_prophet_op(
+                    process_task.output, download_weather_open_meteo_task.output,  diff_time, num_days, asset
                 ).add_env_variable(env_var)
                 .set_memory_request('2Gi')
                 .set_memory_limit('4Gi')
                 .set_cpu_request('2')
                 .set_cpu_limit('4')
                 )
-
-
-                with dsl.Condition(check_send_forecast_task.output == True):
-                    send_forecast_task = send_forecast_op(forecast_train_task.outputs["forecast_data"], url_pilot, pilot_name, asset, measurement, key_measurement, num_days)
-
-                with dsl.Condition(check_send_notification_task.output == True):
-                    send_notification_task = send_notification_op(forecast_train_task.outputs["forecast_data"], get_thresholds_task.output, asset,pilot_name, url_pilot)
-            
             with dsl.Condition(check_forecast_task.output == False):
-                forecast_task = forecast_data_op(process_task.output, download_weather_open_meteo_task.output, 
-                                                 pilot_name, measurement, asset, "", 
-                                                 max_date, num_days, diff_time)
-                with dsl.Condition(check_send_forecast_task.output == True):
-                    send_forecast_task = send_forecast_op(forecast_task.outputs["forecast_data"], url_pilot, pilot_name, asset, measurement, key_measurement, num_days)
+                bucket_name = "models_renergetic"
+                filename = "prophet_{asset_name}.json".format(asset_name = asset)
+                download_model_prophet_task = download_file_minio_op(path_minio, access_key, secret_key, bucket_name, filename)
+                load_and_forecast_prophet_task = load_and_forecast_prophet_op(download_model_prophet_task.output, download_weather_open_meteo_task.output, 
+                                                diff_time, num_days)
+            
 
-                with dsl.Condition(check_send_notification_task.output == True):
-                    send_notification_task = send_notification_op(forecast_task.outputs["forecast_data"], get_thresholds_task.output, asset,pilot_name, url_pilot)
+            merge_forecast_task = merge_forecast_op(
+                forecast_train_prophet_task.output
+            )
+            merge_forecast_task = merge_forecast_op(
+                load_and_forecast_prophet_task.output
+            )
+
+            # TRANSFORMERS
+
+
+            #,...
 
 compiler.Compiler().compile(pipeline_func = REN_Forecast_Test_Pipeline, package_path ="Forecast_Data_Pipeline.yaml")

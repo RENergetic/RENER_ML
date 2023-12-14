@@ -23,7 +23,9 @@ from components.send_notification import SendNotification
 
 # NEW Components
 from components.train_forecast_prophet import ForecastProphet
+from components.train_forecast_transformer import ForecastTransformer
 from components.load_prophet_forecast import LoadAndForecastProphet
+from components.load_transformer_forecast import LoadAndForecastTransformer
 from components.download_file_minio import DownloadFileMinio
 from components.merge_forecasts import MergeForecast
 
@@ -88,8 +90,16 @@ def REN_Forecast_Test_Pipeline(url_pilot,
         ForecastProphet, base_image= "adcarras/ren-docker-forecast:0.0.1", output_component_file= "forecast_prophet_component.yaml"
     )
 
+    train_transformer_op = comp.create_component_from_func(
+        ForecastTransformer, base_image= "adcarras/ren-docker-forecast:0.0.1", output_component_file= "forecast_transformer_component.yaml"
+    )
+
     load_and_forecast_prophet_op = comp.create_component_from_func(
         LoadAndForecastProphet, base_image= "adcarras/ren-docker-forecast:0.0.1", output_component_file= "load_and_forecast_prophet.yaml"
+    )
+
+    load_and_forecast_transformer_op = comp.create_component_from_func(
+        LoadAndForecastTransformer, base_image= "adcarras/ren-docker-forecast:0.0.1", output_component_file= "load_and_forecast_transformer.yaml"
     )
 
     merge_forecast_op = comp.create_component_from_func(
@@ -173,9 +183,26 @@ def REN_Forecast_Test_Pipeline(url_pilot,
                 load_and_forecast_prophet_task.output
             )
 
-            # TRANSFORMERS
+            # TRANSFORMERS SIDE - CHANGE THE FUNCTION FOR A COMPONENT AND LOAD COMPONENT
 
-
+            with dsl.Condition(check_forecast_task.output == True):
+                forecast_train_transformer_task = (
+                train_transformer_op(
+                    process_task.output,  diff_time, num_days, asset
+                ).add_env_variable(env_var)
+                .set_memory_request('2Gi')
+                .set_memory_limit('4Gi')
+                .set_cpu_request('2')
+                .set_cpu_limit('4')
+                )
+            
+            with dsl.Condition(check_forecast_task.output == False):
+                bucket_name = "models_renergetic"
+                filename = "transformer_{asset_name}.pt".format(asset_name = asset)
+                download_model_transformer_task = download_file_minio_op(path_minio, access_key, secret_key, bucket_name, filename)
+                load_and_forecast_transformer_task = load_and_forecast_transformer_op(download_model_transformer_task.output,
+                                                                                      process_task.output, 
+                                                                                      diff_time, num_days, asset)
             #,...
 
 compiler.Compiler().compile(pipeline_func = REN_Forecast_Test_Pipeline, package_path ="Forecast_Data_Pipeline.yaml")

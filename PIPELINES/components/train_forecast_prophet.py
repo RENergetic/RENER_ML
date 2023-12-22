@@ -53,9 +53,9 @@ def ForecastProphet(input_data_path: InputPath(str), input_weather_path: InputPa
         metric: Metric which will be used to test the model while training, by default MAE. Options are MAE, RMSE, Coverage
         
         params_grid: Grid of parameters with which the model will be tested. There is a default grid defined.
-        exogenous_data: Exogenous data
-            weather_vars: This parameter allows to use only a subsample of all the variables in the weather_data if the list is empty none will be used. By default, all variables inside the weather_data will be used.
-            horizon_span: Horizon span used in cross validation. As a default 10 days are used. 
+        exogenous_data: Exogenous data ["ds", values]
+        weather_vars: This parameter allows to use only a subsample of all the variables in the weather_data if the list is empty none will be used. By default, all variables inside the weather_data will be used.
+        horizon_span: Horizon span used in cross validation. As a default 10 days are used. 
             
         Returns
         -------

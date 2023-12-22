@@ -158,6 +158,7 @@ def REN_Forecast_Test_Pipeline(url_pilot,
                                     .set_memory_limit('4Gi')
                                     .set_cpu_request('2')
                                     .set_cpu_limit('4'))
+            
             with dsl.Condition(check_forecast_task.output == True):
                 forecast_train_prophet_task = (
                 train_prophet_op(
@@ -176,10 +177,10 @@ def REN_Forecast_Test_Pipeline(url_pilot,
                                                 diff_time, num_days)
             
 
-            merge_forecast_task = merge_forecast_op(
+            merge_prophet_task = merge_forecast_op(
                 forecast_train_prophet_task.output
             )
-            merge_forecast_task = merge_forecast_op(
+            merge_prophet_task = merge_forecast_op(
                 load_and_forecast_prophet_task.output
             )
 
@@ -203,6 +204,18 @@ def REN_Forecast_Test_Pipeline(url_pilot,
                 load_and_forecast_transformer_task = load_and_forecast_transformer_op(download_model_transformer_task.output,
                                                                                       process_task.output, 
                                                                                       diff_time, num_days, asset)
-            #,...
+            
+            merge_transformers_task = merge_forecast_op(
+                forecast_train_prophet_task.output
+            )
+            merge_transformers_task = merge_forecast_op(
+                load_and_forecast_prophet_task.output
+            )
+
+            # LSTM SIDE
+            
+
+            # CHECK METRICS
+            
 
 compiler.Compiler().compile(pipeline_func = REN_Forecast_Test_Pipeline, package_path ="Forecast_Data_Pipeline.yaml")

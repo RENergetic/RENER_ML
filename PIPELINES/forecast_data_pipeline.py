@@ -189,7 +189,7 @@ def REN_Forecast_Test_Pipeline(url_pilot,
             with dsl.Condition(check_forecast_task.output == True):
                 forecast_train_transformer_task = (
                 train_transformer_op(
-                    process_task.output,  diff_time, num_days, asset
+                    process_task.output, download_weather_open_meteo_task.output, diff_time, num_days, asset
                 ).add_env_variable(env_var)
                 .set_memory_request('2Gi')
                 .set_memory_limit('4Gi')
@@ -202,7 +202,8 @@ def REN_Forecast_Test_Pipeline(url_pilot,
                 filename = "transformer_{asset_name}.pt".format(asset_name = asset)
                 download_model_transformer_task = download_file_minio_op(path_minio, access_key, secret_key, bucket_name, filename)
                 load_and_forecast_transformer_task = load_and_forecast_transformer_op(download_model_transformer_task.output,
-                                                                                      process_task.output, 
+                                                                                      process_task.output,
+                                                                                      download_weather_open_meteo_task.output,
                                                                                       diff_time, num_days, asset)
             
             merge_transformers_task = merge_forecast_op(

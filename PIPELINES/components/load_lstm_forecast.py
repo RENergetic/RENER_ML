@@ -2,6 +2,7 @@ from kfp.components import InputPath, OutputPath
 
 # TODO don't forget the input_data_path and asset_name arguments in forecast_data_pipeline
 def LoadAndForecastLSTM(model_saved_path: InputPath(str), input_data_path: InputPath(str),
+    input_weather_path: InputPath(str),
     diff_time,
     num_days,
     asset_name,
@@ -50,7 +51,19 @@ def LoadAndForecastLSTM(model_saved_path: InputPath(str), input_data_path: Input
         transformer = Scaler()
         input_series_transformed = transformer.fit_transform(input_series)
 
-        forecast = model.predict(n=days_ahead*measures_per_hour, series = input_series_transformed)
+        # TODO check if weather data covers enough time to be used as future covariates in RNNModel
+        try:
+            weather_series = TimeSeries.from_dataframe(
+                weather_data, time_col='ds', fill_missing_dates=True, freq="{minutes}T".format(minutes=diff_time)
+            )
+            weather_series = fill_missing_values(weather_series)
+
+            weather_transformer = Scaler()
+            weather_transformed = weather_transformer.fit_transform(weather_series)
+        except:
+            weather_transformed = None
+
+        forecast = model.predict(n=days_ahead*24*measures_per_hour, series = input_series_transformed, future_covariates=weather_transformed)
         forecast = transformer.inverse_transform(forecast)
         forecast = forecast.pd_dataframe().reset_index()
         forecast = forecast[['ds', 'y']]
@@ -60,6 +73,7 @@ def LoadAndForecastLSTM(model_saved_path: InputPath(str), input_data_path: Input
         return forecast
 
 
+    weather_data = pd.read_feather(input_weather_path)
     lstm_model = RNNModel.load(model_saved_path)  # Load model
     
     with open(input_data_path) as file:
@@ -69,6 +83,6 @@ def LoadAndForecastLSTM(model_saved_path: InputPath(str), input_data_path: Input
     data["ds"] = pd.to_datetime(data["ds"])
     data = data.set_index("ds").asfreq("{minutes}T".format(minutes=diff_time)).reset_index()
 
-    forecast_ = PredictFromLSTM(lstm_model, data, diff_time, days_ahead=num_days)
+    forecast_ = PredictFromLSTM(lstm_model, data, weather_data, diff_time, days_ahead=num_days)
 
     forecast_.to_feather(forecast_data_path)

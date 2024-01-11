@@ -24,8 +24,10 @@ from components.send_notification import SendNotification
 # NEW Components
 from components.train_forecast_prophet import ForecastProphet
 from components.train_forecast_transformer import ForecastTransformer
+from components.train_forecast_lstm import ForecastLSTM
 from components.load_prophet_forecast import LoadAndForecastProphet
 from components.load_transformer_forecast import LoadAndForecastTransformer
+from components.load_lstm_forecast import LoadAndForecastLSTM
 from components.download_file_minio import DownloadFileMinio
 from components.merge_forecasts import MergeForecast
 
@@ -94,12 +96,20 @@ def REN_Forecast_Test_Pipeline(url_pilot,
         ForecastTransformer, base_image= "adcarras/ren-docker-forecast:0.0.1", output_component_file= "forecast_transformer_component.yaml"
     )
 
+    train_lstm_op = comp.create_component_from_func(
+        ForecastLSTM, base_image= "adcarras/ren-docker-forecast:0.0.1", output_component_file= "forecast_lstm_component.yaml"
+    )
+
     load_and_forecast_prophet_op = comp.create_component_from_func(
         LoadAndForecastProphet, base_image= "adcarras/ren-docker-forecast:0.0.1", output_component_file= "load_and_forecast_prophet.yaml"
     )
 
     load_and_forecast_transformer_op = comp.create_component_from_func(
         LoadAndForecastTransformer, base_image= "adcarras/ren-docker-forecast:0.0.1", output_component_file= "load_and_forecast_transformer.yaml"
+    )
+
+    load_and_forecast_lstm_op = comp.create_component_from_func(
+        LoadAndForecastLSTM, base_image= "adcarras/ren-docker-forecast:0.0.1", output_component_file= "load_and_forecast_lstm.yaml"
     )
 
     merge_forecast_op = comp.create_component_from_func(
@@ -215,6 +225,32 @@ def REN_Forecast_Test_Pipeline(url_pilot,
 
             # LSTM SIDE
             
+            with dsl.Condition(check_forecast_task.output == True):
+                forecast_train_lstm_task = (
+                train_lstm_op(
+                    process_task.output, download_weather_open_meteo_task.output, diff_time, num_days, asset
+                ).add_env_variable(env_var)
+                .set_memory_request('2Gi')
+                .set_memory_limit('4Gi')
+                .set_cpu_request('2')
+                .set_cpu_limit('4')
+                )
+            
+            with dsl.Condition(check_forecast_task.output == False):
+                bucket_name = "models_renergetic"
+                filename = "lstm_{asset_name}.pt".format(asset_name = asset)
+                download_model_lstm_task = download_file_minio_op(path_minio, access_key, secret_key, bucket_name, filename)
+                load_and_forecast_lstm_task = load_and_forecast_lstm_op(download_model_lstm_task.output,
+                                                                                      process_task.output,
+                                                                                      download_weather_open_meteo_task.output,
+                                                                                      diff_time, num_days, asset)
+            
+            merge_lstm_task = merge_forecast_op(
+                forecast_train_lstm_task.output
+            )
+            merge_lstm_task = merge_forecast_op(
+                load_and_forecast_lstm_task.output
+            )
 
             # CHECK METRICS
             

@@ -2,13 +2,9 @@ from kfp.components import InputPath, OutputPath
 
 
 def ForecastProphet(input_data_path: InputPath(str), input_weather_path: InputPath(str),
-#    path_minio,
-#    access_key,
-#    secret_key,
     diff_time,
-    num_days,
+    num_days:int,
     asset_name,
-#    mlpipeline_metrics_path: OutputPath('Metrics'),
     forecast_data_path: OutputPath(str),
     model_saved_path: OutputPath(str)
     ):
@@ -143,23 +139,26 @@ def ForecastProphet(input_data_path: InputPath(str), input_weather_path: InputPa
     def PredictFromProphet(model, 
                             weather_data,
                             freq_hourly, 
-                            days_ahead = 1):
+                            days_ahead:int = 1):
 
         """
         Takes a Prophet model and makes the prediction. It
 
         """
 
+        print(type(days_ahead))
+        print(days_ahead)
+
         if freq_hourly <= 1:
-            freq_of_hours = np.round(1/freq,0)
+            freq_of_hours = np.round(1/freq_hourly,0)
             freq = "{num_hours}H".format(num_hours = freq_of_hours)
             periods = np.round(days_ahead*24 / freq_of_hours,0)
         else:
-            freq_in_minutes = np.round(60/freq,0)
+            freq_in_minutes = np.round(60/freq_hourly,0)
             freq = "{num_minutes}T".format(num_minutes = freq_in_minutes)
             periods = np.round(days_ahead*24*60 / freq_in_minutes,0)
             
-        future = model.make_future_dataframe(periods = periods, freq = freq, include_history = False)
+        future = model.make_future_dataframe(periods = int(periods), freq = freq, include_history = False)
         future["ds"] = future["ds"].apply(str)
         future = pd.merge(future, weather_data, on = "ds")
         forecast = model.predict(future)
@@ -233,7 +232,7 @@ def ForecastProphet(input_data_path: InputPath(str), input_weather_path: InputPa
 
     weather_data = pd.read_feather(input_weather_path)
     
-    freq_hourly = 60/diff_time
+    freq_hourly = 60/int(diff_time)
 
     data = data[data.asset_name == asset_name]
 

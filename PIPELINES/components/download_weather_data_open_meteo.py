@@ -67,8 +67,6 @@ def DownloadWeatherData_OpenMeteo(input_weather_influx: InputPath(str), city_nam
 
         weather_data = weather_data[["ds", 'temperature_2m', 'cloudcover', 'shortwave_radiation',
         'direct_radiation', 'diffuse_radiation', 'direct_normal_irradiance']]
-        weather_data.columns = ["ds_hour", 'temperature_2m', 'cloudcover', 'shortwave_radiation',
-            'direct_radiation', 'diffuse_radiation', 'direct_normal_irradiance']
         
         return weather_data
     

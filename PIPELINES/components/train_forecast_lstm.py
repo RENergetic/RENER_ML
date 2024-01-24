@@ -5,6 +5,7 @@ def ForecastLSTM(input_data_path: InputPath(str),
     diff_time,
     num_days,
     asset_name,
+    n_epochs,
     forecast_data_path: OutputPath(str),
     model_saved_path: OutputPath(str)
 
@@ -29,9 +30,9 @@ def ForecastLSTM(input_data_path: InputPath(str),
                 weather_data,
                 metric='MAE',
                 params_grid={'hidden_dim': [25], 'n_rnn_layers': [1]},
-                diff_time: int = 60):
+                diff_time: int = 60,
+                n_epochs: int = 4):
 
-        n_epochs = 100
         batch_size = 16
         split_proportion = 0.9
 
@@ -65,7 +66,7 @@ def ForecastLSTM(input_data_path: InputPath(str),
         # TODO consistent approach for all mdoels?
         # TODO make sure diff_time is considered for calculating the hours, or use an alternative approach to split the series
         train, val = series.split_after(
-            pd.Timestamp(series.start_time() + pd.Timedelta(hours=int(len(series) * split_proportion)))
+            pd.Timestamp(series.start_time() + pd.Timedelta(hours=int(len(series) * split_proportion * (int(diff_time)/60))))
         )
 
         transformer = Scaler()
@@ -198,15 +199,15 @@ def ForecastLSTM(input_data_path: InputPath(str),
         return forecast
 
 
-    def TrainAndPredictLSTM(data, diff_time, days_ahead):
+    def TrainAndPredictLSTM(data, weather_data,diff_time, days_ahead, n_epochs):
         """
         
         Component to train and predict
 
         """
 
-        model, metric = Train_LSTM(data, diff_time=diff_time)
-        preds_test = PredictFromLSTM(model, data, diff_time, days_ahead)
+        model, metric = Train_LSTM(data, weather_data,diff_time=diff_time, n_epochs = n_epochs)
+        preds_test = PredictFromLSTM(model, data, weather_data,diff_time, days_ahead)
 
         return preds_test, model
 
@@ -223,7 +224,7 @@ def ForecastLSTM(input_data_path: InputPath(str),
 
     weather_data = pd.read_feather(input_weather_path)
 
-    pred_test, model = TrainAndPredictLSTM(data, weather_data, diff_time, num_days)
+    pred_test, model = TrainAndPredictLSTM(data, weather_data, diff_time, num_days, n_epochs)
 
     pred_test.to_feather(forecast_data_path)
 

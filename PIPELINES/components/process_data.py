@@ -174,8 +174,8 @@ def ProcessData(input_data_path: InputPath(str), hourly_aggregate, minute_aggreg
     
 
     data_output = {
-        "value": output_data["value"].tolist(),
-        "time_registered": output_data["time_registered"].tolist(),
+        "y": output_data["value"].tolist(),
+        "ds": output_data["time_registered"].tolist(),
         "asset_name": output_data["asset_name"].tolist()
     }
 

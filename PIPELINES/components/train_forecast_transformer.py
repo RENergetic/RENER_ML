@@ -5,6 +5,7 @@ def ForecastTransformer(input_data_path: InputPath(str),
     diff_time,
     num_days,
     asset_name,
+    n_epochs,
     forecast_data_path: OutputPath(str),
     model_saved_path: OutputPath(str)
 ):
@@ -26,7 +27,8 @@ def ForecastTransformer(input_data_path: InputPath(str),
                           metric="MAE",
                           params_grid={'d_model': [64, 128],
                                        'nhead': [4, 8]},
-                          diff_time: int = 60):
+                          diff_time: int = 60,
+                          n_epochs:int = 4):
         """
         Trains a Transformer model based on the given train_data.
 
@@ -51,7 +53,6 @@ def ForecastTransformer(input_data_path: InputPath(str),
             The best metric value achieved during training.
         """
 
-        n_epochs = 100
         batch_size = 16
         split_proportion = 0.9
 
@@ -65,7 +66,7 @@ def ForecastTransformer(input_data_path: InputPath(str),
 
         # Create training and validation sets:
         train, val = series.split_after(
-            pd.Timestamp(series.start_time() + pd.Timedelta(hours=int(len(series) * split_proportion)))
+            pd.Timestamp(series.start_time() + pd.Timedelta(hours=int(len(series) * split_proportion * (int(diff_time)/60))))
         )
 
         # Normalize the time series (note: we avoid fitting the transformer on the validation set)
@@ -196,12 +197,12 @@ def ForecastTransformer(input_data_path: InputPath(str),
 
         return forecast
 
-    def TrainAndPredictTransformer(data, weather_data, diff_time, days_ahead):
+    def TrainAndPredictTransformer(data, weather_data, diff_time, days_ahead, n_epochs):
         """
         Component to train and predict
         """
 
-        model, metric = Train_Transformer(data, weather_data, diff_time=diff_time)
+        model, metric = Train_Transformer(data, weather_data, diff_time=diff_time, n_epochs = n_epochs)
         preds_test = PredictFromTransformer(model, data, weather_data, diff_time, days_ahead)
 
         return preds_test, model
@@ -224,7 +225,7 @@ def ForecastTransformer(input_data_path: InputPath(str),
     print("The data we are using to train the model is:\n")
     print(data.head())
 
-    pred_test, model = TrainAndPredictTransformer(data, weather_data, diff_time, num_days)
+    pred_test, model = TrainAndPredictTransformer(data, weather_data, diff_time, num_days, n_epochs = n_epochs)
 
     pred_test.to_feather(forecast_data_path)
 

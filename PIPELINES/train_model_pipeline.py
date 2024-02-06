@@ -31,7 +31,7 @@ from components.load_lstm_forecast import LoadAndForecastLSTM
 from components.download_file_minio import DownloadFileMinio
 from components.merge_forecasts import MergeForecast
 from components.compare_models import CheckSetModels
-from components.save_model import ProduceModel
+from components.save_model import ProduceModelProphet, ProduceModel
 
 def REN_Train_Model_Pipeline(url_pilot,
     diff_time:int,
@@ -130,6 +130,9 @@ def REN_Train_Model_Pipeline(url_pilot,
     set_models_op = comp.create_component_from_func(CheckSetModels, output_component_file="compare_and_set_models.yaml", packages_to_install=["pandas", "scikit-learn"])
 
     produce_model_op = comp.create_component_from_func(ProduceModel, output_component_file= "produce_model_comp.yaml")
+
+    produce_model_prophet_op = comp.create_component_from_func(ProduceModelProphet, packages_to_install=["maya", "minio"], output_component_file="produce_prophet_comp.yaml")
+
     # BEGIN PIPELINE DEFINITION
 
     get_thresholds_task = get_thresholds_op(url_pilot, pilot_name)
@@ -269,13 +272,17 @@ def REN_Train_Model_Pipeline(url_pilot,
             )
 
             # SAVE MODEL
-
             with dsl.Condition(set_model_task.output == "prophet"):
-                save_model_task = produce_model_op(set_model_task.output)
+                save_model_task = produce_model_prophet_op(train_prophet_op.outputs["model_saved"],
+                                                           path_minio,
+                                                           access_key,
+                                                           pilot_name,
+                                                           measurement,
+                                                           asset)
             with dsl.Condition(set_model_task.output == "lstm"):
-                save_model_task = produce_model_op(set_model_task.output)
+                save_model_task = produce_model_op()
             with dsl.Condition(set_model_task.output == "transformers"):
-                save_model_task = produce_model_op(set_model_task.output)
+                save_model_task = produce_model_op()
             
 
 

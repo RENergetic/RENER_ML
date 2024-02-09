@@ -9,14 +9,9 @@ import time
 from components.get_data import GetData
 from components.download_weather_data_open_meteo import DownloadWeatherData_OpenMeteo
 from components.download_data_from_influx_db import DownloadDataFromInfluxDB
-from components.calculate_forecast_metrics import CalculateForecastMetrics
-from components.get_thresholds import GetThresholds
-from components.get_list_assets import Get_List_Assets
+from components.calculate_forecast_metrics import CheckModelInList
+from components.utils import Get_List_Assets, GetListofDict, Check
 from components.process_data import ProcessData
-from components.check_send_forecast import CheckSendForecast
-from components.send_forecast import SendForecast
-from components.check_send_notification import CheckSendNotification
-from components.send_notification import SendNotification
 
 
 
@@ -31,9 +26,9 @@ from components.load_lstm_forecast import LoadAndForecastLSTM
 from components.download_file_minio import DownloadFileMinio
 from components.merge_forecasts import MergeForecast
 from components.compare_models import CheckSetModels
-from components.save_model import ProduceModelProphet, ProduceModel
+from components.save_model import SetModel
 
-def REN_Train_Model_Pipeline(url_pilot,
+def REN_Train_Model_Pipeline(url_pilot:str,
     diff_time:int,
     filter_vars:list = [],
     filter_case:list = [],
@@ -42,7 +37,6 @@ def REN_Train_Model_Pipeline(url_pilot,
     secret_key="DaTkKc45Hxr1YLR4LxR2xJP2",
     min_date = "5 May 2023",
     max_date = "today",
-    list_measurements:list = ["electricity_meter", "heat_meter"],
     dict_assets : dict = {
         "electricity_meter": ["building1", "building2"],
         "heat_meter": ["building1", "building2"]
@@ -52,8 +46,8 @@ def REN_Train_Model_Pipeline(url_pilot,
     pilot_name = "Virtual",
     hourly_aggregate = "no",
     minute_aggregate = "no",
+    forecast_models = "all",
     num_days: int = 1,
-    mae_threshold:float = 1000000,
     n_epochs: int = 10,
     timestamp: float = time.time()
     ):
@@ -68,16 +62,16 @@ def REN_Train_Model_Pipeline(url_pilot,
         DownloadDataFromInfluxDB, output_component_file="weather_influx_db_component.yaml", packages_to_install=["pandas", "pyarrow"]
     )
 
-    check_metrics_forecast_op = comp.create_component_from_func(
-        CalculateForecastMetrics, packages_to_install=["maya", "icecream", "pandas","scikit-learn"], output_component_file = "metric_check_op.yaml"
+    check_model_list_op = comp.create_component_from_func(
+        CheckModelInList, output_component_file= "model_list_component.yaml"
     )
 
-    get_thresholds_op = comp.create_component_from_func(
-        GetThresholds, packages_to_install= ["requests"], output_component_file= "thresholds_component.yaml"
-    )
-    get_list_op = comp.create_component_from_func(
+    get_list_assets_op = comp.create_component_from_func(
         Get_List_Assets, output_component_file= "get_list_component.yaml"
     )
+    
+    get_list_measurements_op = comp.create_component_from_func(GetListofDict, output_component_file="list_dicts_components.yaml")
+
     process_data_op = comp.create_component_from_func(
         ProcessData, packages_to_install= ["maya", "pandas", "icecream", "tqdm"], output_component_file= "process_data_op_component.yaml"
     )
@@ -114,38 +108,29 @@ def REN_Train_Model_Pipeline(url_pilot,
         MergeForecast, packages_to_install=["pandas", "pyarrow"], output_component_file="merge_forecast_component.yaml"
     )
 
-    check_send_forecast_op = comp.create_component_from_func(
-        CheckSendForecast, packages_to_install=[], output_component_file= "check_send_forecast_component.yaml"
-    )
-    send_forecast_op = comp.create_component_from_func(SendForecast, packages_to_install=["requests", "numpy", "maya","pandas", "icecream", "tqdm", "minio", "boto3"], output_component_file= "send_forecast_comp.yaml")
+    compare_models_op = comp.create_component_from_func(CheckSetModels, output_component_file="compare_and_set_models.yaml", packages_to_install=["pandas", "scikit-learn"])
 
-    check_send_notification_op = comp.create_component_from_func(
-        CheckSendNotification, output_component_file= "check_send_notification.yaml"
-    )
+    check_generic_op = comp.create_component_from_func(Check, output_component_file= "generic_check.yaml")
 
-    send_notification_op = comp.create_component_from_func(
-        SendNotification, packages_to_install=["pandas", "maya", "fuckit", "icecream"],output_component_file="send_notification.yaml"
-    )
+    set_model_op = comp.create_component_from_func(SetModel, packages_to_install=["maya", "minio"], output_component_file="set_models_component.yaml")
 
-    set_models_op = comp.create_component_from_func(CheckSetModels, output_component_file="compare_and_set_models.yaml", packages_to_install=["pandas", "scikit-learn"])
-
-    produce_model_op = comp.create_component_from_func(ProduceModel, output_component_file= "produce_model_comp.yaml")
-
-    produce_model_prophet_op = comp.create_component_from_func(ProduceModelProphet, packages_to_install=["maya", "minio"], output_component_file="produce_prophet_comp.yaml")
-
-    # BEGIN PIPELINE DEFINITION
-
-    get_thresholds_task = get_thresholds_op(url_pilot, pilot_name)
+    ########## BEGIN PIPELINE DEFINITION  ###############
+    
+    ### STEP 1: DOWNLOAD WEATHER DATA #######################
+    # In this step weather data is downloaded as it should be somewhat genereic for the same pilot. #
 
     download_weather_influx_task = download_weather_influx_db_op(timestamp)
 
     download_weather_open_meteo_task = download_weather_open_meteo_op(download_weather_influx_task.output, pilot_name, min_date)
 
-    
-   
-    
 
-    with dsl.ParallelFor(list_measurements) as measurement:
+    # LOOP OVER MEASUREMENTS #
+
+    list_measurements_task = get_list_measurements_op(dict_assets)
+
+    with dsl.ParallelFor(list_measurements_task.output) as measurement:
+
+        # STEP 2: DOWNLOAD AND PROCESS TIME SERIES DATA ###
         download_task = (download_data_op(measurement, min_date, max_date, url_pilot,pilot_name, type_measurement, key_measurement, filter_vars, filter_case).add_env_variable(env_var)
                             .set_memory_request('2Gi')
                             .set_memory_limit('4Gi')
@@ -159,56 +144,72 @@ def REN_Train_Model_Pipeline(url_pilot,
                         .set_memory_request('2Gi')
                             .set_memory_limit('4Gi')
                             .set_cpu_request('2')
-                            .set_cpu_limit('4'))
-        
-        get_list_task = (get_list_op(measurement, dict_assets))
+                            .set_cpu_limit('4'))   
+        get_list_task = (get_list_assets_op(measurement, dict_assets))
 
         
         with dsl.ParallelFor(get_list_task.output) as asset:
+
+            # STEP 3: TRAIN ALL MODELS
             
             # PROPHET SIDE - CHANGE THE FUNCTION FOR A COMPONENT AND LOAD COMPONENT
 
-            check_forecast_task = (check_metrics_forecast_op(download_task.outputs["output_data_metric"], asset, mae_threshold = mae_threshold)
-                                   .set_memory_request('2Gi')
-                                    .set_memory_limit('4Gi')
-                                    .set_cpu_request('2')
-                                    .set_cpu_limit('4'))
+            check_prophet_task = check_model_list_op("prophet", forecast_models)
             
-            with dsl.Condition(check_forecast_task.output == True):
+            with dsl.Condition(check_prophet_task.output == True):
                 forecast_train_prophet_task = (
                 train_prophet_op(
                     process_task.output, 
                     download_weather_open_meteo_task.output,  
                     diff_time, 
-                    num_days, 
-                    asset
+                    num_days,
+                    pilot_name,
+                    measurement,
+                    asset,
+                    path_minio,
+                    access_key,
+                    secret_key
                 ).add_env_variable(env_var)
                 .set_memory_request('2Gi')
                 .set_memory_limit('4Gi')
                 .set_cpu_request('2')
                 .set_cpu_limit('4')
                 )
-            with dsl.Condition(check_forecast_task.output == False):
-                bucket_name = "models_renergetic"
-                filename = "prophet_{asset_name}.json".format(asset_name = asset)
-                download_model_prophet_task = download_file_minio_op(path_minio, access_key, secret_key, bucket_name, filename)
-                load_and_forecast_prophet_task = load_and_forecast_prophet_op(download_model_prophet_task.output, download_weather_open_meteo_task.output, 
-                                                diff_time, num_days)
+            with dsl.Condition(check_prophet_task.output == False):
+                load_and_forecast_prophet_task = load_and_forecast_prophet_op(
+                    download_weather_open_meteo_task.output,  # INPUT DATA
+                    diff_time, num_days, # TIME SERIES CRITERIA
+                    path_minio, access_key, secret_key, # MINIO CONFIG
+                    pilot_name, measurement, asset) # NAME CONFIG
             
 
             merge_prophet_task = merge_forecast_op(
-                forecast_train_prophet_task.outputs["forecast_data"]
+                forecast_train_prophet_task.outputs["forecast_data"],
+                forecast_train_prophet_task.outputs["results"]
             )
             merge_prophet_task = merge_forecast_op(
-                load_and_forecast_prophet_task.outputs["forecast_data"]
+                load_and_forecast_prophet_task.outputs["forecast_data"],
+                load_and_forecast_prophet_task.outputs["results"]
             )
 
             # TRANSFORMERS SIDE - CHANGE THE FUNCTION FOR A COMPONENT AND LOAD COMPONENT
 
-            with dsl.Condition(check_forecast_task.output == True):
+            check_transformers_task = check_model_list_op("transformers", forecast_models)
+
+            with dsl.Condition(check_transformers_task.output == True):
                 forecast_train_transformer_task = (
                 train_transformer_op(
-                    process_task.output, download_weather_open_meteo_task.output, diff_time, num_days, asset, n_epochs
+                    process_task.output, 
+                    download_weather_open_meteo_task.output, 
+                    diff_time, 
+                    num_days,
+                    pilot_name,
+                    measurement, 
+                    asset, 
+                    n_epochs,
+                    path_minio,
+                    access_key,
+                    secret_key
                 ).add_env_variable(env_var)
                 .set_memory_request('2Gi')
                 .set_memory_limit('4Gi')
@@ -216,28 +217,44 @@ def REN_Train_Model_Pipeline(url_pilot,
                 .set_cpu_limit('4')
                 )
             
-            with dsl.Condition(check_forecast_task.output == False):
-                bucket_name = "models_renergetic"
-                filename = "transformer_{asset_name}.pt".format(asset_name = asset)
-                download_model_transformer_task = download_file_minio_op(path_minio, access_key, secret_key, bucket_name, filename)
-                load_and_forecast_transformer_task = load_and_forecast_transformer_op(download_model_transformer_task.output,
-                                                                                      process_task.output,
-                                                                                      download_weather_open_meteo_task.output,
-                                                                                      diff_time, num_days, asset)
+            with dsl.Condition(check_transformers_task.output == False):
+                load_and_forecast_transformer_task = load_and_forecast_transformer_op(
+                    process_task.output,download_weather_open_meteo_task.output,
+                    diff_time, num_days,
+                    path_minio, access_key, secret_key, 
+                    pilot_name,measurement, asset
+                    )
             
             merge_transformers_task = merge_forecast_op(
-                forecast_train_transformer_task.outputs["forecast_data"]
+                forecast_train_transformer_task.outputs["forecast_data"],
+                forecast_train_transformer_task.outputs["results"]
             )
             merge_transformers_task = merge_forecast_op(
-                load_and_forecast_transformer_task.outputs["forecast_data"]
+                load_and_forecast_transformer_task.outputs["forecast_data"],
+                load_and_forecast_transformer_task.outputs["results"]
             )
 
             # LSTM SIDE
             
-            with dsl.Condition(check_forecast_task.output == True):
+            check_lstm_task = check_model_list_op("lstm", forecast_models)
+
+            with dsl.Condition(check_lstm_task.output == True):
                 forecast_train_lstm_task = (
                 train_lstm_op(
-                    process_task.output, download_weather_open_meteo_task.output, diff_time, num_days, asset, n_epochs
+                    process_task.output, download_weather_open_meteo_task.output, 
+                    # TS VARS
+                    diff_time, 
+                    num_days,
+                    # TS NAMES
+                    pilot_name,
+                    measurement, 
+                    asset,
+                    # MINIO VARS
+                    path_minio,
+                    access_key,
+                    secret_key,
+                    # MODEL OPTIONS
+                    n_epochs
                 ).add_env_variable(env_var)
                 .set_memory_request('2Gi')
                 .set_memory_limit('4Gi')
@@ -245,44 +262,61 @@ def REN_Train_Model_Pipeline(url_pilot,
                 .set_cpu_limit('4')
                 )
             
-            with dsl.Condition(check_forecast_task.output == False):
-                bucket_name = "models_renergetic"
-                filename = "lstm_{asset_name}.pt".format(asset_name = asset)
-                download_model_lstm_task = download_file_minio_op(path_minio, access_key, secret_key, bucket_name, filename)
-                load_and_forecast_lstm_task = load_and_forecast_lstm_op(download_model_lstm_task.output,
-                                                                                      process_task.output,
-                                                                                      download_weather_open_meteo_task.output,
-                                                                                      diff_time, num_days, asset)
+            with dsl.Condition(check_lstm_task.output == False):
+                load_and_forecast_lstm_task = load_and_forecast_lstm_op(
+                                                                        process_task.output, download_weather_open_meteo_task.output,
+                                                                        diff_time, num_days,
+                                                                        path_minio, access_key, secret_key, 
+                                                                        pilot_name, measurement, asset)
             
             merge_lstm_task = merge_forecast_op(
-                forecast_train_lstm_task.outputs["forecast_data"]
+                forecast_train_lstm_task.outputs["forecast_data"],
+                forecast_train_lstm_task.outputs["results"]
             )
             merge_lstm_task = merge_forecast_op(
-                load_and_forecast_lstm_task.outputs["forecast_data"]
+                load_and_forecast_lstm_task.outputs["forecast_data"],
+                load_and_forecast_lstm_task.outputs["results"]
             )
 
 
             # CHECK METRICS
 
-            set_model_task = set_models_op(
+            compare_task = compare_models_op(
                 process_task.output,
-                merge_prophet_task.output,
-                merge_lstm_task.output,
-                merge_transformers_task.output
+                merge_prophet_task.outputs["output_forecast"],
+                merge_lstm_task.outputs["output_forecast"],
+                merge_transformers_task.outputs["output_forecast"]
             )
 
             # SAVE MODEL
-            with dsl.Condition(set_model_task.output == "prophet"):
-                save_model_task = produce_model_prophet_op(train_prophet_op.outputs["model_saved"],
+
+            prophet_set_check_task = check_generic_op(compare_task.output, "prophet")
+            lstm_set_check_task = check_generic_op(compare_task.output, "lstm")
+            transformers_set_check_task = check_generic_op(compare_task.output, "transformers")
+
+            with dsl.Condition(prophet_set_check_task.output == True):
+                set_model_task = set_model_op(forecast_train_prophet_task.outputs["results"],
+                                            compare_task.output,
+                                            path_minio,access_key,secret_key,
+                                            pilot_name,measurement,asset)
+            with dsl.Condition(lstm_set_check_task.output == True):
+                save_model_task = set_model_op(forecast_train_lstm_task.outputs["results"],
+                                               compare_task.output,
                                                            path_minio,
                                                            access_key,
+                                                           secret_key,
                                                            pilot_name,
                                                            measurement,
                                                            asset)
-            with dsl.Condition(set_model_task.output == "lstm"):
-                save_model_task = produce_model_op()
-            with dsl.Condition(set_model_task.output == "transformers"):
-                save_model_task = produce_model_op()
+            with dsl.Condition(transformers_set_check_task.output == True):
+                save_model_task = set_model_op(forecast_train_transformer_task.outputs["results"],
+                                               compare_task.output,
+                                                           path_minio,
+                                                           access_key,
+                                                           secret_key,
+                                                           pilot_name,
+                                                           measurement,
+                                                           asset)
             
 
 

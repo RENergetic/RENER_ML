@@ -96,3 +96,6 @@ def TypeModelParser(model_name:str) -> str:
         return model_name_sep[-1]
     except:
         return "No model"
+
+def Check(option1, option2) -> bool:
+    return option1 == option2

@@ -1,17 +1,23 @@
 from kfp.components import InputPath, OutputPath
 
-def LoadAndForecastTransformer(model_saved_path: InputPath(str), input_data_path: InputPath(str),
-    input_weather_path: InputPath(str),
+def LoadAndForecastTransformer(input_data_path: InputPath(str),input_weather_path: InputPath(str),
     diff_time,
     num_days,
+    url_minio,
+    access_key,
+    secret_key,
+    pilot_name,
+    measurement_name,
     asset_name,
     forecast_data_path: OutputPath(str),
+    results_path: OutputPath(str)
 ):
     # LIBRARIES REQUIRED
     import pandas as pd
     import json
     import maya
     import numpy as np
+    from minio import Minio
 
     # FUNCTIONS
     from tqdm import tqdm
@@ -82,8 +88,54 @@ def LoadAndForecastTransformer(model_saved_path: InputPath(str), input_data_path
 
         return forecast
 
+    def DownloadModel(url_minio,
+                      access_key,
+                      secret_key,
+                      pilot_name,
+                      measurement_name,
+                      asset_name):
+
+        client = Minio(
+            url_minio,
+            access_key=access_key,
+            secret_key=secret_key,
+        )
+
+        bucket_name = "{pilot_name}-{measurement}-{asset}".format(
+            pilot_name = pilot_name,
+            measurement = measurement_name,
+            asset = asset_name
+        )
+
+
+        client.fget_object(bucket_name,
+                        "asset_transformers_config.json",
+                        file_path = "transformers_config.json")
+
+        with open("transformers_config.json") as file:
+            config_ = json.load(file)
+        
+        model_name = config_["model_name"]
+
+        client.fget_object(bucket_name,
+                        model_name,
+                        file_path = "transformers_model.pt")
+        client.fget_object(bucket_name,
+                        model_name + ".ckpt",
+                        file_path = "transformers_model.pt.ckpt")
+
+        return model_name
+
     weather_data = pd.read_feather(input_weather_path)
-    transformer_model = TransformerModel.load(model_saved_path)  # Load model
+    model_name = DownloadModel(
+        url_minio,
+        access_key,
+        secret_key,
+        pilot_name,
+        measurement_name,
+        asset_name
+    )
+    transformer_model = TransformerModel.load("transformers_model.pt")  # Load model
 
     with open(input_data_path) as file:
         data_str = json.load(file)
@@ -99,3 +151,12 @@ def LoadAndForecastTransformer(model_saved_path: InputPath(str), input_data_path
     forecast_ = PredictFromTransformer(transformer_model, data, weather_data, diff_time, days_ahead=num_days)
 
     forecast_.to_feather(forecast_data_path)
+
+    print("Model {model_name}".format(model_name = model_name))
+
+    results_dict = {
+        "model_name": model_name
+    }
+
+    with open(results_path, "w"):
+        json.dump(results_dict, results_path)

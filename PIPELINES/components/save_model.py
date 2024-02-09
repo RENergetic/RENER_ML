@@ -1,36 +1,47 @@
 from kfp.components import InputPath
 
-def ProduceModelProphet(
-        model_saved_path: InputPath(str),
-        url_minio,
-        access_key,
-        secret_key,
-        pilot_name,
-        measurement_name,
-        asset_name):
+def SetModel(model_path: InputPath(str),
+             type_model: str,
+             url_minio,
+             access_key,
+             secret_key,
+             pilot_name,
+             measurement_name,
+             asset_name):
 
-    from minio import Minio
     import maya
     from datetime import datetime
+    from minio import Minio
+    import json
+
+    with open(model_path) as file:
+        data_model = json.load(file)
+    
+    model_name = data_model["model_name"]
+
+    dict_model_measurement_asset = {
+        "model_name": model_name,
+        "set_date":  datetime.strftime(maya.now().datetime(), "%Y-%m-%d"),
+        "train_date": model_name[-10:],
+        "type_model": type_model
+    }
 
     client = Minio(
-        url_minio,
-        access_key=access_key,
-        secret_key=secret_key,
-    )
-
+            url_minio,
+            access_key=access_key,
+            secret_key=secret_key,
+        )
+    
     bucket_name = "{pilot_name}-{measurement}-{asset}".format(
-        pilot_name = pilot_name,
-        measurement = measurement_name,
-        asset = asset_name
-    )
-
-    client.fput_object(bucket_name,"set_model.json",file_path = model_saved_path)
+            pilot_name = pilot_name,
+            measurement = measurement_name,
+            asset = asset_name
+        )
+    
+    with open("asset_model_config.json", "w") as file:
+        json.dump(dict_model_measurement_asset, file)
+    
     client.fput_object(bucket_name,
-                       "set_model_{date}.json".format(date = datetime.strftime(maya.now().datetime(), "%Y_%m_%d")),
-                       file_path = model_saved_path)
-    print("Model saved")
+                        "asset_model_config.json",
+                        file_path = "asset_model_config.json")
 
-def ProduceModel():
-
-    print("model not available to be produced")

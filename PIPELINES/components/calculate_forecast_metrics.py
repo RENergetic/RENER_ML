@@ -40,3 +40,20 @@ def CalculateForecastMetrics(input_data_metric_path: InputPath(str), asset_name,
             return True
         else:
             return False
+
+def CheckModelInList(
+    forecast_model,
+    forecast_list
+) -> bool:
+    
+    try:
+
+        if forecast_list == "all":
+            return True
+        elif type(forecast_list) == list:
+            return forecast_model in forecast_list
+        else:
+            return False
+
+    except:
+        return False

@@ -4,9 +4,14 @@ from kfp.components import InputPath, OutputPath
 def ForecastProphet(input_data_path: InputPath(str), input_weather_path: InputPath(str),
     diff_time,
     num_days:int,
+    pilot_name,
+    measurement_name,
     asset_name,
+    url_minio,
+    access_key,
+    secret_key,
     forecast_data_path: OutputPath(str),
-    model_saved_path: OutputPath(str)
+    results_path: OutputPath(str)
     ):
 
     # LIBRARIES REQUIRED    
@@ -20,6 +25,9 @@ def ForecastProphet(input_data_path: InputPath(str), input_weather_path: InputPa
     from prophet import Prophet
     import itertools
     from tqdm import tqdm
+    from minio import Minio
+    import maya
+    from datetime import datetime
     from prophet.diagnostics import cross_validation
     from prophet.diagnostics import performance_metrics
     from prophet.serialize import model_to_json, model_from_json
@@ -223,6 +231,74 @@ def ForecastProphet(input_data_path: InputPath(str), input_weather_path: InputPa
         with open(path_to_model, 'w') as fout:
             fout.write(model_to_json(model))  # Save model
     
+    def ProduceModel(url_minio, 
+                     access_key, 
+                     secret_key, 
+                     pilot_name, 
+                     measurement_name, 
+                     asset_name,
+                     path_to_model):
+        
+        # START PROCESS
+
+        client = Minio(
+            url_minio,
+            access_key=access_key,
+            secret_key=secret_key,
+        )
+
+        bucket_name = "{pilot_name}-{measurement}-{asset}".format(
+            pilot_name = pilot_name,
+            measurement = measurement_name,
+            asset = asset_name
+        )
+
+        if client.bucket_exists(bucket_name) != True:
+            client.make_bucket(bucket_name)
+
+        model_name = "prophet_model_{date}.json".format(date = datetime.strftime(maya.now().datetime(), "%Y_%m_%d"))
+
+        # SAVE MODEL FILE(S)
+
+        client.fput_object(bucket_name,
+                        model_name,
+                        file_path = path_to_model)
+        
+        # UPDATE MODEL CONFIGURATION
+
+        try:
+            client.fget_object(bucket_name, 
+                               "asset_prophet_config.json",
+                               "prophet_config.json")
+            with open("prophet_config.json") as file:
+                dict_config = json.load(file)
+            
+            list_models = dict_config["list_models"]
+            dict_config = {
+                "list_models": list_models.append(model_name),
+                "set_model": model_name,
+                "train_date": datetime.strftime(maya.now().datetime(), "%Y_%m_%d"),
+                "lastUpdate": datetime.strftime(maya.now().datetime(), "%Y_%m_%d %H:%M:%S")
+            }
+
+        except:
+            dict_config = {
+                "list_models": [model_name],
+                "set_model": model_name,
+                "train_date": datetime.strftime(maya.now().datetime(), "%Y_%m_%d"),
+                "lastUpdate": datetime.strftime(maya.now().datetime(), "%Y_%m_%d %H:%M:%S")
+            }
+        
+        with open("prophet_config.json", "w") as file:
+            json.dump(dict_config, file)
+        
+        client.fput_object(bucket_name, 
+                               "asset_prophet_config.json",
+                               "prophet_config.json")
+
+
+        return model_name
+
     # READ DATA COMING FROM PREVIOUS STEPS
 
     with open(input_data_path) as file:
@@ -240,8 +316,25 @@ def ForecastProphet(input_data_path: InputPath(str), input_weather_path: InputPa
 
     pred_test.to_feather(forecast_data_path)
 
-    SaveProphetModel(model, model_saved_path)
+    SaveProphetModel(model, "prophet_model.json")
 
+    model_name = ProduceModel(
+        url_minio, 
+        access_key, 
+        secret_key, 
+        pilot_name, 
+        measurement_name, 
+        asset_name,
+        "prophet_model.json"
+    )    
+    print("Model saved")
+
+    results_dict = {
+        "model_name": model_name
+    }
+
+    with open(results_path, "w"):
+        json.dump(results_dict, results_path)
 
 
 

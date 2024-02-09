@@ -4,10 +4,15 @@ def ForecastLSTM(input_data_path: InputPath(str),
     input_weather_path: InputPath(str),
     diff_time,
     num_days,
+    pilot_name,
+    measurement_name,
     asset_name,
+    url_minio,
+    access_key,
+    secret_key,
     n_epochs,
     forecast_data_path: OutputPath(str),
-    model_saved_path: OutputPath(str)
+    results_path: OutputPath(str)
 
 ):
     
@@ -25,6 +30,9 @@ def ForecastLSTM(input_data_path: InputPath(str),
     from darts.dataprocessing.transformers import Scaler
     from darts.utils.missing_values import fill_missing_values
     from darts.metrics import mae, rmse
+    from minio import Minio
+    import maya
+    from datetime import datetime
 
     def Train_LSTM(train_data,
                 weather_data,
@@ -214,6 +222,77 @@ def ForecastLSTM(input_data_path: InputPath(str),
     def SaveLSTMModel(model, path_to_model):
         model.save(path_to_model)
 
+    def ProduceLSTMModel(url_minio, 
+                     access_key, 
+                     secret_key, 
+                     pilot_name, 
+                     measurement_name, 
+                     asset_name,
+                     path_to_model):
+        
+        # START PROCESS
+
+        client = Minio(
+            url_minio,
+            access_key=access_key,
+            secret_key=secret_key,
+        )
+
+        bucket_name = "{pilot_name}-{measurement}-{asset}".format(
+            pilot_name = pilot_name,
+            measurement = measurement_name,
+            asset = asset_name
+        )
+
+        model_name = "lstm_model_{date}.pt".format(date = datetime.strftime(maya.now().datetime(), "%Y_%m_%d"))
+
+        if client.bucket_exists(bucket_name) != True:
+            client.make_bucket(bucket_name)
+
+        # SAVE MODEL FILE(S)
+
+        client.fput_object(bucket_name,
+                        model_name,
+                        file_path = path_to_model)
+        
+        client.fput_object(bucket_name,
+                        model_name + ".ckpt",
+                        file_path = path_to_model+ ".ckpt")
+        
+        # UPDATE MODEL CONFIGURATION
+
+        try:
+            client.fget_object(bucket_name, 
+                               "asset_lstm_config.json",
+                               "lstm_config.json")
+            with open("lstm_config.json") as file:
+                dict_config = json.load(file)
+            
+            list_models = dict_config["list_models"]
+            dict_config = {
+                "list_models": list_models.append(model_name),
+                "set_model": model_name,
+                "train_date": datetime.strftime(maya.now().datetime(), "%Y_%m_%d"),
+                "lastUpdate": datetime.strftime(maya.now().datetime(), "%Y_%m_%d %H:%M:%S")
+            }
+
+        except:
+            dict_config = {
+                "list_models": [model_name],
+                "set_model": model_name,
+                "train_date": datetime.strftime(maya.now().datetime(), "%Y_%m_%d"),
+                "lastUpdate": datetime.strftime(maya.now().datetime(), "%Y_%m_%d %H:%M:%S")
+            }
+        
+        with open("lstm_config.json", "w") as file:
+            json.dump(dict_config, file)
+        
+        client.fput_object(bucket_name, 
+                               "asset_lstm_config.json",
+                               "lstm_config.json")
+        
+        return model_name
+
     # READ DATA COMING FROM PREVIOUS STEPS
 
     with open(input_data_path) as file:
@@ -228,4 +307,24 @@ def ForecastLSTM(input_data_path: InputPath(str),
 
     pred_test.to_feather(forecast_data_path)
 
-    SaveLSTMModel(model, model_saved_path)
+    SaveLSTMModel(model, "lstm_model.pt")
+
+    model_name = ProduceLSTMModel(
+        url_minio,
+        access_key, 
+        secret_key, 
+        pilot_name, 
+        measurement_name, 
+        asset_name,
+        "lstm_model.pt"
+        )
+
+    print("Model saved")
+
+    results_dict = {
+        "model_name": model_name
+    }
+
+    with open(results_path, "w"):
+        json.dump(results_dict, results_path)
+

@@ -4,10 +4,15 @@ def ForecastTransformer(input_data_path: InputPath(str),
     input_weather_path: InputPath(str),
     diff_time,
     num_days,
+    pilot_name,
+    measurement_name,
     asset_name,
     n_epochs,
+    url_minio,
+    access_key,
+    secret_key,
     forecast_data_path: OutputPath(str),
-    model_saved_path: OutputPath(str)
+    results_path: OutputPath(str)
 ):
     # LIBRARIES REQUIRED
     import numpy as np
@@ -16,6 +21,9 @@ def ForecastTransformer(input_data_path: InputPath(str),
 
     # FUNCTIONS
     from tqdm import tqdm
+    from minio import Minio
+    import maya
+    from datetime import datetime
     from darts.models import TransformerModel
     from darts import TimeSeries
     from darts.dataprocessing.transformers import Scaler
@@ -213,6 +221,77 @@ def ForecastTransformer(input_data_path: InputPath(str),
         """
         model.save(path_to_model)
 
+    def ProduceTransformersModel(url_minio, 
+                     access_key, 
+                     secret_key, 
+                     pilot_name, 
+                     measurement_name, 
+                     asset_name,
+                     path_to_model):
+        
+        # START PROCESS
+
+        client = Minio(
+            url_minio,
+            access_key=access_key,
+            secret_key=secret_key,
+        )
+
+        bucket_name = "{pilot_name}-{measurement}-{asset}".format(
+            pilot_name = pilot_name,
+            measurement = measurement_name,
+            asset = asset_name
+        )
+
+        model_name = "transformers_model_{date}.pt".format(date = datetime.strftime(maya.now().datetime(), "%Y_%m_%d"))
+
+        if client.bucket_exists(bucket_name) != True:
+            client.make_bucket(bucket_name)
+
+        # SAVE MODEL FILE(S)
+
+        client.fput_object(bucket_name,
+                        model_name,
+                        file_path = path_to_model)
+        
+        client.fput_object(bucket_name,
+                        model_name + ".ckpt",
+                        file_path = path_to_model+ ".ckpt")
+        
+        # UPDATE MODEL CONFIGURATION
+
+        try:
+            client.fget_object(bucket_name, 
+                               "asset_transformers_config.json",
+                               "transformers_config.json")
+            with open("transformers_config.json") as file:
+                dict_config = json.load(file)
+            
+            list_models = dict_config["list_models"]
+            dict_config = {
+                "list_models": list_models.append(model_name),
+                "set_model": model_name,
+                "train_date": datetime.strftime(maya.now().datetime(), "%Y_%m_%d"),
+                "lastUpdate": datetime.strftime(maya.now().datetime(), "%Y_%m_%d %H:%M:%S")
+            }
+
+        except:
+            dict_config = {
+                "list_models": [model_name],
+                "set_model": model_name,
+                "train_date": datetime.strftime(maya.now().datetime(), "%Y_%m_%d"),
+                "lastUpdate": datetime.strftime(maya.now().datetime(), "%Y_%m_%d %H:%M:%S")
+            }
+        
+        with open("transformers_config.json", "w") as file:
+            json.dump(dict_config, file)
+        
+        client.fput_object(bucket_name, 
+                               "asset_transformers_config.json",
+                               "transformers_config.json")
+        
+        return model_name
+
     # READ DATA COMING FROM PREVIOUS STEPS
     with open(input_data_path) as file:
         data_str = json.load(file)
@@ -229,4 +308,25 @@ def ForecastTransformer(input_data_path: InputPath(str),
 
     pred_test.to_feather(forecast_data_path)
 
-    SaveTransformerModel(model, model_saved_path)
+    SaveTransformerModel(model, "transformers_model.pt")
+
+    model_name = ProduceTransformersModel(
+        url_minio, 
+        access_key, 
+        secret_key, 
+        pilot_name, 
+        measurement_name, 
+        asset_name,
+        "prophet_model.json"
+    )
+
+    print("Model saved")
+
+    results_dict = {
+        "model_name": model_name
+    }
+
+    with open(results_path, "w"):
+        json.dump(results_dict, results_path)
+
+

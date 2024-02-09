@@ -1,12 +1,17 @@
 from kfp.components import InputPath, OutputPath
 
 # TODO don't forget the input_data_path and asset_name arguments in forecast_data_pipeline
-def LoadAndForecastLSTM(model_saved_path: InputPath(str), input_data_path: InputPath(str),
-    input_weather_path: InputPath(str),
+def LoadAndForecastLSTM(input_data_path: InputPath(str),input_weather_path: InputPath(str),
     diff_time,
     num_days,
+    url_minio,
+    access_key,
+    secret_key,
+    pilot_name,
+    measurement_name,
     asset_name,
     forecast_data_path: OutputPath(str),
+    results_path: OutputPath(str)
     ):
 
     # LIBRARIES REQUIRED    
@@ -19,6 +24,7 @@ def LoadAndForecastLSTM(model_saved_path: InputPath(str), input_data_path: Input
     # FUNCTIONS
 
     from tqdm import tqdm
+    from minio import Minio
     from darts.models import RNNModel
     from darts import TimeSeries
     from darts.dataprocessing.transformers import Scaler
@@ -72,9 +78,54 @@ def LoadAndForecastLSTM(model_saved_path: InputPath(str), input_data_path: Input
 
         return forecast
 
+    def DownloadModel(url_minio,
+                      access_key,
+                      secret_key,
+                      pilot_name,
+                      measurement_name,
+                      asset_name):
+
+        client = Minio(
+            url_minio,
+            access_key=access_key,
+            secret_key=secret_key,
+        )
+
+        bucket_name = "{pilot_name}-{measurement}-{asset}".format(
+            pilot_name = pilot_name,
+            measurement = measurement_name,
+            asset = asset_name
+        )
+
+
+        client.fget_object(bucket_name,
+                        "asset_lstm_config.json",
+                        file_path = "lstm_config.json")
+
+        with open("lstm_config.json") as file:
+            config_ = json.load(file)
+        
+        model_name = config_["model_name"]
+
+        client.fget_object(bucket_name,
+                        model_name,
+                        file_path = "lstm_model.pt")
+        client.fget_object(bucket_name,
+                        model_name + ".ckpt",
+                        file_path = "lstm_model.pt.ckpt")
+
+        return model_name
 
     weather_data = pd.read_feather(input_weather_path)
-    lstm_model = RNNModel.load(model_saved_path)  # Load model
+    model_name = DownloadModel(
+        url_minio,
+        access_key,
+        secret_key,
+        pilot_name,
+        measurement_name,
+        asset_name
+    )
+    lstm_model = RNNModel.load("lstm_model.pt")  # Load model
     
     with open(input_data_path) as file:
         data_str = json.load(file)
@@ -86,3 +137,12 @@ def LoadAndForecastLSTM(model_saved_path: InputPath(str), input_data_path: Input
     forecast_ = PredictFromLSTM(lstm_model, data, weather_data, diff_time, days_ahead=num_days)
 
     forecast_.to_feather(forecast_data_path)
+
+    print("Model {model_name}".format(model_name = model_name))
+
+    results_dict = {
+        "model_name": model_name
+    }
+
+    with open(results_path, "w"):
+        json.dump(results_dict, results_path)

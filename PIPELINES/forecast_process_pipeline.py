@@ -9,10 +9,10 @@ from components.download_weather_data_open_meteo import DownloadWeatherData_Open
 from components.download_data_from_influx_db import DownloadDataFromInfluxDB
 from components.get_thresholds import GetThresholds
 from components.process_data import ProcessData
-from components.load_prophet_forecast import LoadAndForecastProphet
+from components.forecast_models import Forecast
 from components.send_forecast import SendForecast
 from components.send_notification import SendNotification
-from components.check_availability_forecast import CheckDataAvailability
+from components.check_forecast import CheckDataAvailability, CheckModelSet
 from components.utils import GetListofDict, Get_List_Assets, CheckSendForecast, CheckSendNotification, TypeModelParser
 from components.report_utils import ReportError
 
@@ -42,7 +42,12 @@ process_data_op = comp.create_component_from_func(
     ProcessData, packages_to_install= ["maya", "pandas", "icecream", "tqdm"], output_component_file= "process_data_op_component.yaml"
 )
 
-check_data_availability_op = comp.create_component_from_func(CheckDataAvailability, output_component_file="check_data_availability_forecast.yaml", packages_to_install=list)
+check_data_availability_op = comp.create_component_from_func(CheckDataAvailability, 
+                                                             output_component_file="check_data_availability_forecast.yaml", 
+                                                             )
+check_model_set_op = comp.create_component_from_func(
+    CheckModelSet, output_component_file= "check_model_set_component.yaml", packages_to_install = ["minio"]
+)
 check_send_forecast_op = comp.create_component_from_func(
         CheckSendForecast, packages_to_install=[], output_component_file= "check_send_forecast_component.yaml"
     )
@@ -58,6 +63,10 @@ list_dicts_measurements_op = comp.create_component_from_func(
     GetListofDict, output_component_file= "list_measurements.yaml"
 )
 
+forecast_op = comp.create_component_from_func(Forecast, output_component_file="forecast_model.yaml", 
+                                              base_image= "adcarras/ren-docker-forecast:0.0.1",
+                                              packages_to_install=["darts==0.27.2","fuckit"])
+
 parser_op = comp.create_component_from_func(
     TypeModelParser, output_component_file="parser_model_component.yaml"
 )
@@ -66,11 +75,15 @@ def ForecastProcessPipeline(
         url_pilot: str,
         pilot_name: str,
         measurements_assets_dict: dict,
-        key_measurement: dict,
+        key_measurement: str,
         hourly_aggregate: str,
         minute_aggregate: str,
         type_measurement: str,
         availability_minimum: int,
+        path_minio,
+        access_key,
+        secret_key,
+        num_days_predict: int =1,
         num_days_check: int = 2,
         min_date:str = "2 weeks ago",
         max_date:str = "today",
@@ -86,9 +99,9 @@ def ForecastProcessPipeline(
     download_weather_influx_task = download_weather_influx_db_op(timestamp)
     download_weather_open_meteo_task = download_weather_open_meteo_op(download_weather_influx_task.output, pilot_name, min_date)
 
-    list_measurements = list_dicts_measurements_op(measurements_assets_dict)
+    list_measurements = list_dicts_measurements_op(measurements_assets_dict, timestamp)
 
-    with dsl.ParallelFor(list_measurements) as measurement:
+    with dsl.ParallelFor(list_measurements.output) as measurement:
         download_task = (download_data_op(measurement, min_date, max_date, url_pilot,pilot_name, type_measurement, key_measurement, filter_vars, filter_case).add_env_variable(env_var)
                             .set_memory_request('2Gi')
                             .set_memory_limit('4Gi')
@@ -104,7 +117,7 @@ def ForecastProcessPipeline(
                             .set_cpu_request('2')
                             .set_cpu_limit('4'))
         
-        get_list_task = (get_list_op(measurement, measurements_assets_dict))
+        get_list_task = (get_list_op(measurement, measurements_assets_dict, timestamp))
 
         check_send_forecast_task = check_send_forecast_op(send_forecast)
         check_send_notification_task = check_send_notification_op(send_notification)
@@ -115,21 +128,28 @@ def ForecastProcessPipeline(
 
             # CHECK IF FORECAST IS VIABLE
             check_availability_task = check_data_availability_op(process_task.output, asset, diff_time, availability_minimum, num_days_check)
-
+            check_model_set_task = check_model_set_op(
+                path_minio,
+                access_key,
+                secret_key,
+                pilot_name,
+                measurement,
+                asset
+            )
             with dsl.Condition(check_availability_task.output == True):
-                model_name = "measurement_asset_prophet"
-                get_type_model = parser_op(model_name)
-                with dsl.Condition(get_type_model == "Prophet"):
-                    forecast_task = LoadAndForecastProphet(model_name, download_weather_open_meteo_task.output, diff_time,
-                                                           num_days = num_days_check)
-                with dsl.Condition(get_type_model == "No model"):
-                    report_error_task = error_report_op()
+                
+                forecast_task = forecast_op(process_task.output, download_weather_open_meteo_task.output,
+                                            check_model_set_task.output,
+                                            diff_time, num_days_predict, 
+                                            pilot_name, measurement, asset,
+                                            path_minio, access_key, secret_key)
+                
+                with dsl.Condition(check_send_forecast_task.output == True):
+                    send_forecast_task = send_forecast_op(forecast_task.outputs["forecast_data"], url_pilot, pilot_name, asset, measurement, key_measurement, num_days_check)
+                    
+                with dsl.Condition(check_send_notification_task.output == True):
+                    send_notification_task = send_notification_op(forecast_task.outputs["forecast_data"], get_thresholds_task.output, asset,pilot_name, url_pilot)
             with dsl.Condition(check_availability_task.output == False):
                 report_error_task = error_report_op()
-            
-            with dsl.Condition(check_send_forecast_task.output):
-                send_forecast_op(forecast_task.outputs["forecast_data"], url_pilot, pilot_name, asset, measurement, key_measurement, num_days_check)
-                
-            with dsl.Conition(check_send_notification_task.output):
-                send_notification_op(forecast_task.outputs["forecast_data"], get_thresholds_task.output, asset,pilot_name, url_pilot)
-            
+
+compiler.Compiler().compile(pipeline_func = ForecastProcessPipeline, package_path ="Forecast_Pipeline.yaml")

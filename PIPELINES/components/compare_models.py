@@ -4,26 +4,46 @@ def CheckSetModels(input_data_ts_path: InputPath(str),
                     input_data_prophet_path: InputPath(str), 
                    input_data_transformers_path: InputPath(str), 
                    input_data_lstm_path: InputPath(str),
+                   asset_name,
                    metric_name: str = "mae"
                    ) -> str:
     
     import pandas as pd
+    import json
+    from icecream import ic
     from sklearn.metrics import mean_absolute_error, mean_squared_error
 
+    class VoidData(Exception):
+        print("No data was computed")
+
     def MergeForecast(forecast_test, new_forecast):
-        if forecast_test.shape[0] != 0 & new_forecast.shape[0] != 0:
+        try:
             forecast_test = pd.merge(forecast_test, new_forecast, on = "ds")
-        
+            if forecast_test.shape[0] == 0:
+                ic("Failed merged")
+                raise VoidData
+        except (VoidData, KeyError) as e:
+            print(e)
+
         return forecast_test
 
-    forecast_test = pd.read_feather(input_data_ts_path)
+    with open(input_data_ts_path) as file:
+        data_str = json.load(file)
+    
+    data = pd.DataFrame(data_str)
+    data = data[data.asset_name == asset_name]
 
     try:
         input_data_prophet = pd.read_feather(input_data_prophet_path)
     except:
         input_data_prophet = pd.DataFrame()
 
-    forecast_test = MergeForecast(forecast_test, input_data_prophet)
+    ic(input_data_prophet.tail())
+
+    forecast_test = MergeForecast(data, input_data_prophet)
+
+    ic(forecast_test.tail())
+
 
     try:
         input_data_lstm = pd.read_feather(input_data_lstm_path)
@@ -32,6 +52,8 @@ def CheckSetModels(input_data_ts_path: InputPath(str),
     
     forecast_test = MergeForecast(forecast_test, input_data_lstm)
 
+    ic(forecast_test.tail())
+
     try:
         input_data_transformers = pd.read_feather(input_data_transformers_path)
     except:
@@ -39,18 +61,22 @@ def CheckSetModels(input_data_ts_path: InputPath(str),
     
     forecast_test = MergeForecast(forecast_test, input_data_transformers)
 
+    ic(forecast_test.shape)
+    ic(forecast_test.columns)
+    ic(forecast_test.tail())
+
     metric_rmse = {}
     metric_mae = {}
 
     if "yhat_prophet" in forecast_test.columns.values:
-        metric_rmse["prophet"] = mean_squared_error(forecast_test.value, forecast_test.yhat_prophet)
-        metric_mae["prophet"] = mean_absolute_error(forecast_test.value, forecast_test.yhat_prophet)
+        metric_rmse["prophet"] = mean_squared_error(forecast_test.y, forecast_test.yhat_prophet)
+        metric_mae["prophet"] = mean_absolute_error(forecast_test.y, forecast_test.yhat_prophet)
     if "yhat_lstm" in forecast_test.columns.values:
-        metric_rmse["lstm"] = mean_squared_error(forecast_test.value, forecast_test.yhat_lstm)
-        metric_mae["lstm"] = mean_absolute_error(forecast_test.value, forecast_test.yhat_lstm)
+        metric_rmse["lstm"] = mean_squared_error(forecast_test.y, forecast_test.yhat_lstm)
+        metric_mae["lstm"] = mean_absolute_error(forecast_test.y, forecast_test.yhat_lstm)
     if "yhat_transformers" in forecast_test.columns.values:
-        metric_rmse["transformers"] = mean_squared_error(forecast_test.value, forecast_test.yhat_transformer)
-        metric_mae["transformers"] = mean_absolute_error(forecast_test.value, forecast_test.yhat_transformer)
+        metric_rmse["transformers"] = mean_squared_error(forecast_test.y, forecast_test.yhat_transformer)
+        metric_mae["transformers"] = mean_absolute_error(forecast_test.y, forecast_test.yhat_transformer)
     
     metrics_forecast = {
         "mae": metric_mae,
@@ -64,6 +90,8 @@ def CheckSetModels(input_data_ts_path: InputPath(str),
     
     main_score_value = 1000000000000
     
+    model_to_set = "No model set"
+
     for key_ in metrics_values.keys():
         value_metric = metrics_values[key_]
         if value_metric < main_score_value:

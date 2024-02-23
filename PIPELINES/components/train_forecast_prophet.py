@@ -10,8 +10,9 @@ def ForecastProphet(input_data_path: InputPath(str), input_weather_path: InputPa
     url_minio,
     access_key,
     secret_key,
+    load_bool:bool,
     forecast_data_path: OutputPath(str),
-    results_path: OutputPath(str)
+    results_path: OutputPath()
     ):
 
     # LIBRARIES REQUIRED    
@@ -31,6 +32,8 @@ def ForecastProphet(input_data_path: InputPath(str), input_weather_path: InputPa
     from prophet.diagnostics import cross_validation
     from prophet.diagnostics import performance_metrics
     from prophet.serialize import model_to_json, model_from_json
+    import fuckit
+    from icecream import ic
 
     def Train_Prophet(train_data, 
                                         weather_data,
@@ -248,10 +251,12 @@ def ForecastProphet(input_data_path: InputPath(str), input_weather_path: InputPa
         )
 
         bucket_name = "{pilot_name}-{measurement}-{asset}".format(
-            pilot_name = pilot_name,
-            measurement = measurement_name,
-            asset = asset_name
+            pilot_name = pilot_name.lower().replace("_", "-"),
+            measurement = measurement_name.lower().replace("_", "-"),
+            asset = asset_name.lower().replace("_","-")
         )
+
+        print(bucket_name)
 
         if client.bucket_exists(bucket_name) != True:
             client.make_bucket(bucket_name)
@@ -277,8 +282,8 @@ def ForecastProphet(input_data_path: InputPath(str), input_weather_path: InputPa
             dict_config = {
                 "list_models": list_models.append(model_name),
                 "set_model": model_name,
-                "train_date": datetime.strftime(maya.now().datetime(), "%Y_%m_%d"),
-                "lastUpdate": datetime.strftime(maya.now().datetime(), "%Y_%m_%d %H:%M:%S")
+                "train_date": datetime.strftime(maya.now().datetime(), "%Y-%m-%d"),
+                "lastUpdate": datetime.strftime(maya.now().datetime(), "%Y-%m-%d %H:%M:%S")
             }
 
         except:
@@ -299,43 +304,123 @@ def ForecastProphet(input_data_path: InputPath(str), input_weather_path: InputPa
 
         return model_name
 
+    def DownloadModel(url_minio,
+                      access_key,
+                      secret_key,
+                      pilot_name,
+                      measurement_name,
+                      asset_name):
+
+        client = Minio(
+            url_minio,
+            access_key=access_key,
+            secret_key=secret_key,
+        )
+
+        bucket_name = "{pilot_name}-{measurement}-{asset}".format(
+            pilot_name = pilot_name.lower().replace("_", "-"),
+            measurement = measurement_name.lower().replace("_", "-"),
+            asset = asset_name.lower().replace("_","-")
+        )
+
+
+        client.fget_object(bucket_name,
+                        "asset_prophet_config.json",
+                        file_path = "prophet_config.json")
+
+        with open("prophet_config.json") as file:
+            config_ = json.load(file)
+        
+        model_name = config_["model_name"]
+
+        client.fget_object(bucket_name,
+                        model_name,
+                        file_path = "prophet_model.json")
+
+        return model_name
+
     # READ DATA COMING FROM PREVIOUS STEPS
 
-    with open(input_data_path) as file:
-        data_str = json.load(file)
-    
-    data = pd.DataFrame(data_str)
-
     weather_data = pd.read_feather(input_weather_path)
+
+    if load_bool == False:
+        # THIS IS THE PATH OF TRAINING AND FORECASTING
+
+        with open(input_data_path) as file:
+            data_str = json.load(file)
+        
+        data = pd.DataFrame(data_str)
+        
+        freq_hourly = 60/int(diff_time)
+
+        data = data[data.asset_name == asset_name]
+
+        day_train_max = datetime.strftime(maya.parse(max(data.ds)).add(days = - 1 * num_days).datetime(), "%Y-%m-%d %H:%M:%S")
+
+        data = data[data.ds < day_train_max]
+
+        ic(day_train_max)
+        ic(data.shape[0])
+        
+        try:
+            pred_test, model = TrainAndPredictProphet(data, weather_data, freq_hourly, num_days)
+            pred_test.reset_index().to_feather(forecast_data_path)
+        except:
+            pred_test = pd.DataFrame()
+            model_name = "No Model Trained"
+            print("Training Failed")
+            pred_test.csv(forecast_data_path)
+
+        
+
+        with fuckit:
+            SaveProphetModel(model, "prophet_model.json")
+
+            model_name = ProduceModel(
+                url_minio, 
+                access_key, 
+                secret_key, 
+                pilot_name, 
+                measurement_name, 
+                asset_name,
+                "prophet_model.json"
+            )    
+            print("Model saved")
+
+        results_dict = {
+            "model_name": model_name
+        }
     
-    freq_hourly = 60/int(diff_time)
+    else:
+        model_name = DownloadModel(
+            url_minio,
+            access_key,
+            secret_key,
+            pilot_name,
+            measurement_name,
+            asset_name
+        )
+        
+        with open("prophet_model.json", 'r') as fin:
+            prophet_model = model_from_json(fin.read())  # Load model
+        
+        latest_date = prophet_model.make_future_dataframe(periods = 1, freq = "1H", include_history= False)
+        latest_date = latest_date["ds"].tolist()[0]
 
-    data = data[data.asset_name == asset_name]
+        num_days_extra = (maya.now() - maya.MayaDT(latest_date)).days
 
-    pred_test, model = TrainAndPredictProphet(data, weather_data, freq_hourly, num_days)
+        num_days = num_days_extra + num_days
 
-    pred_test.to_feather(forecast_data_path)
+        forecast_ = PredictFromProphet(prophet_model, weather_data, freq_hourly = 60/ diff_time, days_ahead = num_days)
 
-    SaveProphetModel(model, "prophet_model.json")
+        forecast_.to_feather(forecast_data_path)
 
-    model_name = ProduceModel(
-        url_minio, 
-        access_key, 
-        secret_key, 
-        pilot_name, 
-        measurement_name, 
-        asset_name,
-        "prophet_model.json"
-    )    
-    print("Model saved")
+        print("Model {model_name} used for test".format(model_name = model_name))
 
-    results_dict = {
-        "model_name": model_name
-    }
+        results_dict = {
+            "model_name": model_name
+        }
 
-    with open(results_path, "w"):
-        json.dump(results_dict, results_path)
-
-
-
+    with open(results_path, "w") as file:
+        json.dump(results_dict, file)
 

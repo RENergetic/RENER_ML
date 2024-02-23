@@ -92,11 +92,10 @@ def LoadAndForecastLSTM(input_data_path: InputPath(str),input_weather_path: Inpu
         )
 
         bucket_name = "{pilot_name}-{measurement}-{asset}".format(
-            pilot_name = pilot_name,
-            measurement = measurement_name,
-            asset = asset_name
+            pilot_name = pilot_name.lower().replace("_", "-"),
+            measurement = measurement_name.lower().replace("_", "-"),
+            asset = asset_name.lower().replace("_","-")
         )
-
 
         client.fget_object(bucket_name,
                         "asset_lstm_config.json",
@@ -144,5 +143,5 @@ def LoadAndForecastLSTM(input_data_path: InputPath(str),input_weather_path: Inpu
         "model_name": model_name
     }
 
-    with open(results_path, "w"):
-        json.dump(results_dict, results_path)
+    with open(results_path, "w") as file:
+        json.dump(results_dict, file)

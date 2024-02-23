@@ -11,6 +11,7 @@ def ForecastTransformer(input_data_path: InputPath(str),
     url_minio,
     access_key,
     secret_key,
+    load_bool:bool,
     forecast_data_path: OutputPath(str),
     results_path: OutputPath(str)
 ):
@@ -29,6 +30,7 @@ def ForecastTransformer(input_data_path: InputPath(str),
     from darts.dataprocessing.transformers import Scaler
     from darts.utils.missing_values import fill_missing_values
     from darts.metrics import mae, rmse
+    import fuckit
 
     def Train_Transformer(train_data,
                           weather_data,
@@ -238,9 +240,9 @@ def ForecastTransformer(input_data_path: InputPath(str),
         )
 
         bucket_name = "{pilot_name}-{measurement}-{asset}".format(
-            pilot_name = pilot_name,
-            measurement = measurement_name,
-            asset = asset_name
+            pilot_name = pilot_name.lower().replace("_", "-"),
+            measurement = measurement_name.lower().replace("_", "-"),
+            asset = asset_name.lower().replace("_","-")
         )
 
         model_name = "transformers_model_{date}.pt".format(date = datetime.strftime(maya.now().datetime(), "%Y_%m_%d"))
@@ -292,6 +294,43 @@ def ForecastTransformer(input_data_path: InputPath(str),
         
         return model_name
 
+    def DownloadModel(url_minio,
+                      access_key,
+                      secret_key,
+                      pilot_name,
+                      measurement_name,
+                      asset_name):
+
+        client = Minio(
+            url_minio,
+            access_key=access_key,
+            secret_key=secret_key,
+        )
+
+        bucket_name = "{pilot_name}-{measurement}-{asset}".format(
+            pilot_name = pilot_name.lower().replace("_", "-"),
+            measurement = measurement_name.lower().replace("_", "-"),
+            asset = asset_name.lower().replace("_","-")
+        )
+
+        client.fget_object(bucket_name,
+                        "asset_transformers_config.json",
+                        file_path = "transformers_config.json")
+
+        with open("transformers_config.json") as file:
+            config_ = json.load(file)
+        
+        model_name = config_["model_name"]
+
+        client.fget_object(bucket_name,
+                        model_name,
+                        file_path = "transformers_model.pt")
+        client.fget_object(bucket_name,
+                        model_name + ".ckpt",
+                        file_path = "transformers_model.pt.ckpt")
+
+        return model_name
+
     # READ DATA COMING FROM PREVIOUS STEPS
     with open(input_data_path) as file:
         data_str = json.load(file)
@@ -301,32 +340,68 @@ def ForecastTransformer(input_data_path: InputPath(str),
 
     weather_data = pd.read_feather(input_weather_path)
 
-    print("The data we are using to train the model is:\n")
-    print(data.head())
 
-    pred_test, model = TrainAndPredictTransformer(data, weather_data, diff_time, num_days, n_epochs = n_epochs)
+    if load_bool == False:
+        print("The data we are using to train the model is:\n")
+        print(data.head())
+        try:
+            pred_test, model = TrainAndPredictTransformer(data, weather_data, diff_time, num_days, n_epochs = n_epochs)
+            pred_test.reset_index().to_feather(forecast_data_path)
+        except Exception as e:
+            pred_test = pd.DataFrame()
+            model_name = "No Model Trained"
+            print("Training Failed")
+            print(e)
+            pred_test.to_csv(forecast_data_path)
 
-    pred_test.to_feather(forecast_data_path)
+        
 
-    SaveTransformerModel(model, "transformers_model.pt")
+        with fuckit:
+            SaveTransformerModel(model, "transformers_model.pt")
 
-    model_name = ProduceTransformersModel(
-        url_minio, 
-        access_key, 
-        secret_key, 
-        pilot_name, 
-        measurement_name, 
-        asset_name,
-        "prophet_model.json"
-    )
+            model_name = ProduceTransformersModel(
+                url_minio, 
+                access_key, 
+                secret_key, 
+                pilot_name, 
+                measurement_name, 
+                asset_name,
+                "prophet_model.json"
+            )
 
-    print("Model saved")
+            print("Model saved")
 
-    results_dict = {
-        "model_name": model_name
-    }
-
-    with open(results_path, "w"):
-        json.dump(results_dict, results_path)
+        results_dict = {
+            "model_name": model_name
+        }
 
 
+    else:
+        model_name = DownloadModel(
+            url_minio,
+            access_key,
+            secret_key,
+            pilot_name,
+            measurement_name,
+            asset_name
+        )
+        transformer_model = TransformerModel.load("transformers_model.pt")  # Load model
+
+        data["ds"] = pd.to_datetime(data["ds"])
+        data = data.set_index("ds").asfreq("{minutes}T".format(minutes=diff_time)).reset_index()
+
+        print("The data we are using to predict is:\n")
+        print(data.head())
+
+        forecast_ = PredictFromTransformer(transformer_model, data, weather_data, diff_time, days_ahead=num_days)
+
+        forecast_.reset_index().to_feather(forecast_data_path)
+
+        print("Model {model_name}".format(model_name = model_name))
+
+        results_dict = {
+            "model_name": model_name
+        }
+
+    with open(results_path, "w") as file:
+        json.dump(results_dict, file)

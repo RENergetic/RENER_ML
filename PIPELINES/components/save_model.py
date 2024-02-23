@@ -33,10 +33,12 @@ def SetModel(model_path: InputPath(str),
         )
     
     bucket_name = "{pilot_name}-{measurement}-{asset}".format(
-            pilot_name = pilot_name,
-            measurement = measurement_name,
-            asset = asset_name
+            pilot_name = pilot_name.lower().replace("_", "-"),
+            measurement = measurement_name.lower().replace("_", "-"),
+            asset = asset_name.lower().replace("_","-")
         )
+    
+    
     
     with open("asset_model_config.json", "w") as file:
         json.dump(dict_model_measurement_asset, file)

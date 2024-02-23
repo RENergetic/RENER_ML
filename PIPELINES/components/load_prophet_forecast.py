@@ -11,7 +11,8 @@ def LoadAndForecastProphet(input_weather_path: InputPath(str),
     asset_name,
 #    mlpipeline_metrics_path: OutputPath('Metrics'),
     forecast_data_path: OutputPath(str),
-    results_path: OutputPath(str)
+    results_path: OutputPath(),
+    timestamp
     ):
 
     # LIBRARIES REQUIRED    
@@ -72,9 +73,9 @@ def LoadAndForecastProphet(input_weather_path: InputPath(str),
         )
 
         bucket_name = "{pilot_name}-{measurement}-{asset}".format(
-            pilot_name = pilot_name,
-            measurement = measurement_name,
-            asset = asset_name
+            pilot_name = pilot_name.lower().replace("_", "-"),
+            measurement = measurement_name.lower().replace("_", "-"),
+            asset = asset_name.lower().replace("_","-")
         )
 
 
@@ -125,8 +126,8 @@ def LoadAndForecastProphet(input_weather_path: InputPath(str),
         "model_name": model_name
     }
 
-    with open(results_path, "w"):
-        json.dump(results_dict, results_path)
+    with open(results_path, "w") as file:
+        json.dump(results_dict, file)
 
 
 

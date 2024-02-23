@@ -13,7 +13,7 @@ def CheckDataAvailability(input_processed_data_path: InputPath(str), asset_name,
     data = pd.DataFrame(data_str)
     data.columns = [["value", "ds", "asset_name"]]
     data = data[data.asset_name == asset_name]
-    data = data[data.ds >= datetime.strftime(maya.when("now").add(days = -2).datetime(), "%Y-%m-%d")]
+    data = data[data.ds >= datetime.strftime(maya.when("now").add(days = -1 * num_days_check).datetime(), "%Y-%m-%d")]
 
     expected_values = (60/diff_time) * 24 * num_days_check
     

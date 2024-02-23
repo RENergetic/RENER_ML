@@ -11,6 +11,7 @@ def ForecastLSTM(input_data_path: InputPath(str),
     access_key,
     secret_key,
     n_epochs,
+    load_bool:bool,
     forecast_data_path: OutputPath(str),
     results_path: OutputPath(str)
 
@@ -33,6 +34,7 @@ def ForecastLSTM(input_data_path: InputPath(str),
     from minio import Minio
     import maya
     from datetime import datetime
+    import fuckit
 
     def Train_LSTM(train_data,
                 weather_data,
@@ -206,7 +208,6 @@ def ForecastLSTM(input_data_path: InputPath(str),
 
         return forecast
 
-
     def TrainAndPredictLSTM(data, weather_data,diff_time, days_ahead, n_epochs):
         """
         
@@ -239,9 +240,9 @@ def ForecastLSTM(input_data_path: InputPath(str),
         )
 
         bucket_name = "{pilot_name}-{measurement}-{asset}".format(
-            pilot_name = pilot_name,
-            measurement = measurement_name,
-            asset = asset_name
+            pilot_name = pilot_name.lower().replace("_", "-"),
+            measurement = measurement_name.lower().replace("_", "-"),
+            asset = asset_name.lower().replace("_","-")
         )
 
         model_name = "lstm_model_{date}.pt".format(date = datetime.strftime(maya.now().datetime(), "%Y_%m_%d"))
@@ -293,6 +294,43 @@ def ForecastLSTM(input_data_path: InputPath(str),
         
         return model_name
 
+    def DownloadModel(url_minio,
+                      access_key,
+                      secret_key,
+                      pilot_name,
+                      measurement_name,
+                      asset_name):
+
+        client = Minio(
+            url_minio,
+            access_key=access_key,
+            secret_key=secret_key,
+        )
+
+        bucket_name = "{pilot_name}-{measurement}-{asset}".format(
+            pilot_name = pilot_name.lower().replace("_", "-"),
+            measurement = measurement_name.lower().replace("_", "-"),
+            asset = asset_name.lower().replace("_","-")
+        )
+
+        client.fget_object(bucket_name,
+                        "asset_lstm_config.json",
+                        file_path = "lstm_config.json")
+
+        with open("lstm_config.json") as file:
+            config_ = json.load(file)
+        
+        model_name = config_["model_name"]
+
+        client.fget_object(bucket_name,
+                        model_name,
+                        file_path = "lstm_model.pt")
+        client.fget_object(bucket_name,
+                        model_name + ".ckpt",
+                        file_path = "lstm_model.pt.ckpt")
+
+        return model_name
+
     # READ DATA COMING FROM PREVIOUS STEPS
 
     with open(input_data_path) as file:
@@ -303,28 +341,63 @@ def ForecastLSTM(input_data_path: InputPath(str),
 
     weather_data = pd.read_feather(input_weather_path)
 
-    pred_test, model = TrainAndPredictLSTM(data, weather_data, diff_time, num_days, n_epochs)
+    if load_bool == False:
+        try:
+            pred_test, model = TrainAndPredictLSTM(data, weather_data, diff_time, num_days, n_epochs)
+            pred_test.reset_index().to_feather(forecast_data_path)
+        except Exception as e:
+            pred_test = pd.DataFrame()
+            model_name = "No model trained"
+            print("Train model failed")
+            print(e)
+            pred_test.to_csv(forecast_data_path)
+        
+        pred_test.reset_index().to_feather(forecast_data_path)
+        
+        with fuckit:
+            SaveLSTMModel(model, "lstm_model.pt")
 
-    pred_test.to_feather(forecast_data_path)
+            model_name = ProduceLSTMModel(
+                url_minio,
+                access_key, 
+                secret_key, 
+                pilot_name, 
+                measurement_name, 
+                asset_name,
+                "lstm_model.pt"
+                )
 
-    SaveLSTMModel(model, "lstm_model.pt")
+            print("Model saved")
 
-    model_name = ProduceLSTMModel(
-        url_minio,
-        access_key, 
-        secret_key, 
-        pilot_name, 
-        measurement_name, 
-        asset_name,
-        "lstm_model.pt"
+        results_dict = {
+            "model_name": model_name
+        }
+
+    else:
+        model_name = DownloadModel(
+            url_minio,
+            access_key,
+            secret_key,
+            pilot_name,
+            measurement_name,
+            asset_name
         )
+        lstm_model = RNNModel.load("lstm_model.pt")  # Load model
+        data["ds"] = pd.to_datetime(data["ds"])
+        data = data.set_index("ds").asfreq("{minutes}T".format(minutes=diff_time)).reset_index()
 
-    print("Model saved")
+        forecast_ = PredictFromLSTM(lstm_model, data, weather_data, diff_time, days_ahead=num_days)
 
-    results_dict = {
-        "model_name": model_name
-    }
+        forecast_.reset_index().to_feather(forecast_data_path)
 
-    with open(results_path, "w"):
-        json.dump(results_dict, results_path)
+        print("Model {model_name}".format(model_name = model_name))
+
+        results_dict = {
+            "model_name": model_name
+        }
+
+
+
+    with open(results_path, "w") as file:
+        json.dump(results_dict, file)
 

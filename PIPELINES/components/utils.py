@@ -1,6 +1,6 @@
 from kfp.components import InputPath
 
-def GetListofDict(measurements_assets_dict:dict) -> list:
+def GetListofDict(measurements_assets_dict:dict, timestamp) -> list:
 
     """
     
@@ -39,7 +39,7 @@ def CheckTrainModel(train_check:str) -> bool:
         ic("Forecast not send, the option is not 'yes' or 'no', please check this, the option sent was " + train_check)
         return False
 
-def Get_List_Assets(measurement_name, dict_assets) -> dict:
+def Get_List_Assets(measurement_name, dict_assets, timestamp) -> dict:
 
     """
     
@@ -97,5 +97,5 @@ def TypeModelParser(model_name:str) -> str:
     except:
         return "No model"
 
-def Check(option1, option2) -> bool:
+def Check(option1, option2, timestamp) -> bool:
     return option1 == option2

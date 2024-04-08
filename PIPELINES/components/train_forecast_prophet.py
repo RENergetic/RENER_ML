@@ -78,10 +78,14 @@ def ForecastProphet(input_data_path: InputPath(str), input_weather_path: InputPa
         coverage = [] # Store the Coveragess for each params here
             
             
-            # Processing to merge train data and weather data 
+        # Processing to merge train data and weather data 
             
         train_data = train_data[["ds", "y"]].groupby("ds").mean().reset_index(level = "ds")
-        train_data = pd.merge(train_data, weather_data, on = "ds")
+        
+        train_data["ds"] = train_data["ds"].apply(pd.to_datetime)
+        weather_data["ds"] = weather_data["ds"].apply(pd.to_datetime)
+
+        train_data = pd.merge_asof(train_data, weather_data, on = "ds")
         
         # Processing weather_vars
         
@@ -90,7 +94,16 @@ def ForecastProphet(input_data_path: InputPath(str), input_weather_path: InputPa
             
         # Stablishing cutoff points for cross validation
         cutoffs = [pd.to_datetime(train_data.ds).quantile(0.1), pd.to_datetime(train_data.ds).quantile(0.3), pd.to_datetime(train_data.ds).quantile(0.5)]
-        
+        ic(cutoffs)
+        if (max(pd.to_datetime(train_data.ds)) - cutoffs[-1]).days < 10:
+            days_horizon = (max(pd.to_datetime(train_data.ds)) - cutoffs[-1]).days
+            ic(days_horizon)
+            if days_horizon < 2:
+                cutoffs = [pd.to_datetime(train_data.ds).quantile(0.1), pd.to_datetime(train_data.ds).quantile(0.3)]
+                horizon_span = "3 days"
+            else:
+                horizon_span = "{hor_d} days".format(hor_d = days_horizon-1)
+
         # Incluir grid search cross fit. 
         
         if metric in ["MAE", "RMSE"]:
@@ -170,8 +183,7 @@ def ForecastProphet(input_data_path: InputPath(str), input_weather_path: InputPa
             periods = np.round(days_ahead*24*60 / freq_in_minutes,0)
             
         future = model.make_future_dataframe(periods = int(periods), freq = freq, include_history = False)
-        future["ds"] = future["ds"].apply(str)
-        future = pd.merge(future, weather_data, on = "ds")
+        future = pd.merge_asof(future, weather_data, on = "ds")
         forecast = model.predict(future)
         forecast = forecast[["ds", "yhat"]]
         forecast.columns = ["ds", "yhat_prophet"]
@@ -365,11 +377,12 @@ def ForecastProphet(input_data_path: InputPath(str), input_weather_path: InputPa
         try:
             pred_test, model = TrainAndPredictProphet(data, weather_data, freq_hourly, num_days)
             pred_test.reset_index().to_feather(forecast_data_path)
-        except:
+        except Exception as e:
             pred_test = pd.DataFrame()
             model_name = "No Model Trained"
             print("Training Failed")
-            pred_test.csv(forecast_data_path)
+            print(e)
+            pred_test.to_csv(forecast_data_path)
 
         
 

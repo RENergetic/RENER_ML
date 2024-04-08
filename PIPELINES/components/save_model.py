@@ -22,7 +22,7 @@ def SetModel(model_path: InputPath(str),
     dict_model_measurement_asset = {
         "model_name": model_name,
         "set_date":  datetime.strftime(maya.now().datetime(), "%Y-%m-%d"),
-        "train_date": model_name[-10:],
+        "train_date": model_name[-15:-5].replace("_","-"),
         "type_model": type_model
     }
 
@@ -38,7 +38,7 @@ def SetModel(model_path: InputPath(str),
             asset = asset_name.lower().replace("_","-")
         )
     
-    
+
     
     with open("asset_model_config.json", "w") as file:
         json.dump(dict_model_measurement_asset, file)

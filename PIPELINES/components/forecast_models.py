@@ -16,6 +16,7 @@ def Forecast(
     import numpy as np
     from minio import Minio
     import maya
+    import pickle
 
     from prophet.serialize import model_from_json
     from darts.models import RNNModel
@@ -56,6 +57,7 @@ def Forecast(
         return forecast
     
     def PredictFromLSTM(model, data, weather_data,
+                        transformer, weather_transformer,
                         diff_time,
                         days_ahead = 1):
 
@@ -78,8 +80,7 @@ def Forecast(
 
         input_series = TimeSeries.from_dataframe(data, 'ds', 'y',fill_missing_dates=True, freq="{minutes}T".format(minutes = diff_time))
         input_series = fill_missing_values(input_series)
-        transformer = Scaler()
-        input_series_transformed = transformer.fit_transform(input_series)
+        input_series_transformed = transformer.transform(input_series)
 
         # TODO check if weather data covers enough time to be used as future covariates in RNNModel
         try:
@@ -88,8 +89,7 @@ def Forecast(
             )
             weather_series = fill_missing_values(weather_series)
 
-            weather_transformer = Scaler()
-            weather_transformed = weather_transformer.fit_transform(weather_series)
+            weather_transformed = weather_transformer.transform(weather_series)
         except:
             weather_transformed = None
 
@@ -102,7 +102,9 @@ def Forecast(
 
         return forecast
 
-    def PredictFromTransformer(model, data, weather_data, diff_time, days_ahead=1):
+    def PredictFromTransformer(model, data, weather_data, 
+                               transformer, weather_transformer,
+                               diff_time, days_ahead=1):
         """
         Takes a Transformer model and makes the prediction.
 
@@ -135,8 +137,7 @@ def Forecast(
         )
         input_series = fill_missing_values(input_series)
 
-        transformer = Scaler()
-        input_series_transformed = transformer.fit_transform(input_series)
+        input_series_transformed = transformer.transform(input_series)
 
         try:
             weather_series = TimeSeries.from_dataframe(
@@ -144,8 +145,7 @@ def Forecast(
             )
             weather_series = fill_missing_values(weather_series)
 
-            weather_transformer = Scaler()
-            weather_transformed = weather_transformer.fit_transform(weather_series)
+            weather_transformed = weather_transformer.transform(weather_series)
         except:
             weather_transformed = None
 
@@ -174,6 +174,13 @@ def Forecast(
             client.fget_object(bucket_name,
                             model_name + ".ckpt",
                             file_path = "model.pt.ckpt")
+            
+            client.fget_object(bucket_name,
+                            model_name.replace(".pt", "_") + "scaler.pkl",
+                            file_path = "scaler.pkl")
+            client.fget_object(bucket_name,
+                        model_name.replace(".pt", "_") + "weather_scaler.pkl",
+                        file_path = "weather_scaler.pkl")
 
     # BUCKET CONFIG
 
@@ -234,13 +241,22 @@ def Forecast(
             data["ds"] = pd.to_datetime(data["ds"])
             data = data.set_index("ds").asfreq("{minutes}T".format(minutes=diff_time)).reset_index()
 
-            forecast_ = PredictFromLSTM(lstm_model, data, weather_data, diff_time, days_ahead=num_days)
+            # load scale objects
+            with open("scaler.pkl", 'rb') as f:
+                transformer = pickle.load(f)
+
+            with open("weather_scaler.pkl", 'rb') as f:
+                weather_transformer = pickle.load(f)
+
+            forecast_ = PredictFromLSTM(lstm_model, data, weather_data,
+                                        transformer, weather_transformer,
+                                        diff_time, days_ahead=num_days)
 
             forecast_.reset_index().to_feather(forecast_data_path)
         
         elif type_model == "transformers":
             
-            transformer_model = TransformerModel.load("transformers_model.pt")  # Load model
+            transformer_model = TransformerModel.load("model.pt")  # Load model
 
             data["ds"] = pd.to_datetime(data["ds"])
             data = data.set_index("ds").asfreq("{minutes}T".format(minutes=diff_time)).reset_index()
@@ -248,7 +264,16 @@ def Forecast(
             print("The data we are using to predict is:\n")
             print(data.head())
 
-            forecast_ = PredictFromTransformer(transformer_model, data, weather_data, diff_time, days_ahead=num_days)
+            # load scale objects
+            with open("scaler.pkl", 'rb') as f:
+                transformer = pickle.load(f)
+            
+            with open("weather_scaler.pkl", 'rb') as f:
+                weather_transformer = pickle.load(f)
+
+            forecast_ = PredictFromTransformer(transformer_model, data, weather_data,
+                                               transformer, weather_transformer,
+                                               diff_time, days_ahead=num_days)
 
             forecast_.reset_index().to_feather(forecast_data_path)
 

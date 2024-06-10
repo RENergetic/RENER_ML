@@ -74,7 +74,7 @@ def CheckSetModels(input_data_ts_path: InputPath(str),
     if "yhat_lstm" in forecast_test.columns.values:
         metric_rmse["lstm"] = mean_squared_error(forecast_test.y, forecast_test.yhat_lstm)
         metric_mae["lstm"] = mean_absolute_error(forecast_test.y, forecast_test.yhat_lstm)
-    if "yhat_transformers" in forecast_test.columns.values:
+    if "yhat_transformer" in forecast_test.columns.values:
         metric_rmse["transformers"] = mean_squared_error(forecast_test.y, forecast_test.yhat_transformer)
         metric_mae["transformers"] = mean_absolute_error(forecast_test.y, forecast_test.yhat_transformer)
     

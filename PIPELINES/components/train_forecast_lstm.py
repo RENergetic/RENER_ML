@@ -22,6 +22,7 @@ def ForecastLSTM(input_data_path: InputPath(str),
     import numpy as np
     import json
     import pandas as pd
+    import pickle
 
     # FUNCTIONS
 
@@ -96,6 +97,7 @@ def ForecastLSTM(input_data_path: InputPath(str),
             weather_transformed = weather_transformer.fit_transform(weather_series)  # fit the scaler to the weather series and transform it
         except:
             weather_transformed = None
+            weather_transformer = None
             
         measures_per_hour = int(60/int(diff_time))
 
@@ -159,9 +161,10 @@ def ForecastLSTM(input_data_path: InputPath(str),
             verbose=True
         )
 
-        return best_model, best_metric
+        return best_model, best_metric, (transformer, weather_transformer)
 
     def PredictFromLSTM(model, data, weather_data,
+                        transformer, weather_transformer,
                         diff_time,
                         days_ahead = 1):
 
@@ -184,8 +187,8 @@ def ForecastLSTM(input_data_path: InputPath(str),
 
         input_series = TimeSeries.from_dataframe(data, 'ds', 'y',fill_missing_dates=True, freq="{minutes}T".format(minutes = diff_time))
         input_series = fill_missing_values(input_series)
-        transformer = Scaler()
-        input_series_transformed = transformer.fit_transform(input_series)
+        # transformer = Scaler()
+        input_series_transformed = transformer.transform(input_series)
 
         # TODO check if weather data covers enough time to be used as future covariates in RNNModel
         try:
@@ -194,8 +197,8 @@ def ForecastLSTM(input_data_path: InputPath(str),
             )
             weather_series = fill_missing_values(weather_series)
 
-            weather_transformer = Scaler()
-            weather_transformed = weather_transformer.fit_transform(weather_series)
+            # weather_transformer = Scaler()
+            weather_transformed = weather_transformer.transform(weather_series)
         except:
             weather_transformed = None
 
@@ -215,10 +218,24 @@ def ForecastLSTM(input_data_path: InputPath(str),
 
         """
 
-        model, metric = Train_LSTM(data, weather_data,diff_time=diff_time, n_epochs = n_epochs)
-        preds_test = PredictFromLSTM(model, data, weather_data,diff_time, days_ahead)
+        model, metric, (transformer, weather_transformer) = Train_LSTM(data, weather_data,diff_time=diff_time, n_epochs = n_epochs)
+        preds_test = PredictFromLSTM(model, data, weather_data,
+                                    transformer, weather_transformer,
+                                    diff_time, days_ahead)
 
-        return preds_test, model
+        return preds_test, model, (transformer, weather_transformer)
+    
+    def SaveLSTMScaleObjects(transformer, weather_transformer):
+        """
+        Save the transformer and weather_transformer objects in a current directory
+        """
+
+        with open("lstm_scaler.pkl", "wb") as file:
+            pickle.dump(transformer, file)
+
+        with open("lstm_weather_scaler.pkl", "wb") as file:
+            pickle.dump(weather_transformer, file)
+
 
     def SaveLSTMModel(model, path_to_model):
         model.save(path_to_model)
@@ -259,6 +276,14 @@ def ForecastLSTM(input_data_path: InputPath(str),
         client.fput_object(bucket_name,
                         model_name + ".ckpt",
                         file_path = path_to_model+ ".ckpt")
+        
+        client.fput_object(bucket_name,
+                        model_name.replace(".pt", "_") + "scaler.pkl",
+                        file_path = "lstm_scaler.pkl")
+
+        client.fput_object(bucket_name,
+                        model_name.replace(".pt", "_") + "weather_scaler.pkl",
+                        file_path = "lstm_weather_scaler.pkl")
         
         # UPDATE MODEL CONFIGURATION
 
@@ -328,6 +353,14 @@ def ForecastLSTM(input_data_path: InputPath(str),
         client.fget_object(bucket_name,
                         model_name + ".ckpt",
                         file_path = "lstm_model.pt.ckpt")
+        
+        client.fget_object(bucket_name,
+                        model_name.replace(".pt", "_") + "scaler.pkl",
+                        file_path = "lstm_scaler.pkl")
+        
+        client.fget_object(bucket_name,
+                        model_name.replace(".pt", "_") + "weather_scaler.pkl",
+                        file_path = "lstm_weather_scaler.pkl")
 
         return model_name
 
@@ -343,7 +376,7 @@ def ForecastLSTM(input_data_path: InputPath(str),
 
     if load_bool == False:
         try:
-            pred_test, model = TrainAndPredictLSTM(data, weather_data, diff_time, num_days, n_epochs)
+            pred_test, model, (transformer, weather_transformer) = TrainAndPredictLSTM(data, weather_data, diff_time, num_days, n_epochs)
             pred_test.reset_index().to_feather(forecast_data_path)
         except Exception as e:
             pred_test = pd.DataFrame()
@@ -356,6 +389,7 @@ def ForecastLSTM(input_data_path: InputPath(str),
         
         with fuckit:
             SaveLSTMModel(model, "lstm_model.pt")
+            SaveLSTMScaleObjects(transformer, weather_transformer)
 
             model_name = ProduceLSTMModel(
                 url_minio,
@@ -386,7 +420,16 @@ def ForecastLSTM(input_data_path: InputPath(str),
         data["ds"] = pd.to_datetime(data["ds"])
         data = data.set_index("ds").asfreq("{minutes}T".format(minutes=diff_time)).reset_index()
 
-        forecast_ = PredictFromLSTM(lstm_model, data, weather_data, diff_time, days_ahead=num_days)
+        # load scale objects
+        with open("lstm_scaler.pkl", "rb") as file:
+            transformer = pickle.load(file)
+
+        with open("lstm_weather_scaler.pkl", "rb") as file:
+            weather_transformer = pickle.load(file)
+
+        forecast_ = PredictFromLSTM(lstm_model, data, weather_data, 
+                                    transformer, weather_transformer,
+                                    diff_time, days_ahead=num_days)
 
         forecast_.reset_index().to_feather(forecast_data_path)
 

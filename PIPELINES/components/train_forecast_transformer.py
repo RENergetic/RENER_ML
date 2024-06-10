@@ -19,6 +19,7 @@ def ForecastTransformer(input_data_path: InputPath(str),
     import numpy as np
     import json
     import pandas as pd
+    import pickle
 
     # FUNCTIONS
     from tqdm import tqdm
@@ -96,6 +97,7 @@ def ForecastTransformer(input_data_path: InputPath(str),
             weather_transformed = weather_transformer.fit_transform(weather_series)  # fit the scaler to the weather series and transform it
         except:
             weather_transformed = None
+            weather_transformer = None
 
         measures_per_hour = int(60 / int(diff_time))
 
@@ -147,9 +149,11 @@ def ForecastTransformer(input_data_path: InputPath(str),
             verbose=True
         )
 
-        return best_model, best_metric
+        return best_model, best_metric, (transformer, weather_transformer)
 
-    def PredictFromTransformer(model, data, weather_data, diff_time, days_ahead=1):
+    def PredictFromTransformer(model, data, weather_data,
+                               transformer, weather_transformer,
+                               diff_time, days_ahead=1):
         """
         Takes a Transformer model and makes the prediction.
 
@@ -182,8 +186,8 @@ def ForecastTransformer(input_data_path: InputPath(str),
         )
         input_series = fill_missing_values(input_series)
 
-        transformer = Scaler()
-        input_series_transformed = transformer.fit_transform(input_series)
+        # transformer = Scaler()
+        input_series_transformed = transformer.transform(input_series)
 
         try:
             weather_series = TimeSeries.from_dataframe(
@@ -191,8 +195,8 @@ def ForecastTransformer(input_data_path: InputPath(str),
             )
             weather_series = fill_missing_values(weather_series)
 
-            weather_transformer = Scaler()
-            weather_transformed = weather_transformer.fit_transform(weather_series)
+            # weather_transformer = Scaler()
+            weather_transformed = weather_transformer.transform(weather_series)
         except:
             weather_transformed = None
 
@@ -212,10 +216,23 @@ def ForecastTransformer(input_data_path: InputPath(str),
         Component to train and predict
         """
 
-        model, metric = Train_Transformer(data, weather_data, diff_time=diff_time, n_epochs = n_epochs)
-        preds_test = PredictFromTransformer(model, data, weather_data, diff_time, days_ahead)
+        model, metric, (transformer, weather_transformer) = Train_Transformer(data, weather_data, diff_time=diff_time, n_epochs = n_epochs)
+        preds_test = PredictFromTransformer(model, data, weather_data,
+                                            transformer, weather_transformer,
+                                            diff_time, days_ahead)
 
-        return preds_test, model
+        return preds_test, model, (transformer, weather_transformer)
+    
+    def SaveTransformerScaleObject(transformer, weather_transformer):
+        """ 
+        Save the transformer and weather_transformer objects in a current directory 
+        """
+
+        with open("transformer_scaler.pkl", "wb") as file:
+            pickle.dump(transformer, file)
+
+        with open("transformer_weather_scaler.pkl", "wb") as file:
+            pickle.dump(weather_transformer, file)
 
     def SaveTransformerModel(model, path_to_model):
         """
@@ -259,6 +276,14 @@ def ForecastTransformer(input_data_path: InputPath(str),
         client.fput_object(bucket_name,
                         model_name + ".ckpt",
                         file_path = path_to_model+ ".ckpt")
+        
+        client.fput_object(bucket_name,
+                        model_name.replace(".pt", "_") + "scaler.pkl",
+                        file_path = "transformer_scaler.pkl")
+
+        client.fput_object(bucket_name,
+                        model_name.replace(".pt", "_") + "weather_scaler.pkl",
+                        file_path = "transformer_weather_scaler.pkl")
         
         # UPDATE MODEL CONFIGURATION
 
@@ -328,6 +353,14 @@ def ForecastTransformer(input_data_path: InputPath(str),
         client.fget_object(bucket_name,
                         model_name + ".ckpt",
                         file_path = "transformers_model.pt.ckpt")
+        
+        client.fget_object(bucket_name,
+                        model_name.replace(".pt", "_") + "scaler.pkl",
+                        file_path = "transformer_scaler.pkl")
+        
+        client.fget_object(bucket_name,
+                        model_name.replace(".pt", "_") + "weather_scaler.pkl",
+                        file_path = "transformer_weather_scaler.pkl")
 
         return model_name
 
@@ -345,7 +378,7 @@ def ForecastTransformer(input_data_path: InputPath(str),
         print("The data we are using to train the model is:\n")
         print(data.head())
         try:
-            pred_test, model = TrainAndPredictTransformer(data, weather_data, diff_time, num_days, n_epochs = n_epochs)
+            pred_test, model, (transformer, weather_transformer) = TrainAndPredictTransformer(data, weather_data, diff_time, num_days, n_epochs = n_epochs)
             pred_test.reset_index().to_feather(forecast_data_path)
         except Exception as e:
             pred_test = pd.DataFrame()
@@ -358,6 +391,7 @@ def ForecastTransformer(input_data_path: InputPath(str),
 
         with fuckit:
             SaveTransformerModel(model, "transformers_model.pt")
+            SaveTransformerScaleObject(transformer, weather_transformer)
 
             model_name = ProduceTransformersModel(
                 url_minio, 
@@ -366,7 +400,7 @@ def ForecastTransformer(input_data_path: InputPath(str),
                 pilot_name, 
                 measurement_name, 
                 asset_name,
-                "prophet_model.json"
+                "transformers_model.pt"
             )
 
             print("Model saved")
@@ -393,7 +427,16 @@ def ForecastTransformer(input_data_path: InputPath(str),
         print("The data we are using to predict is:\n")
         print(data.head())
 
-        forecast_ = PredictFromTransformer(transformer_model, data, weather_data, diff_time, days_ahead=num_days)
+        # load the scalers
+        with open("transformer_scaler.pkl", "rb") as file:
+            transformer = pickle.load(file)
+        
+        with open("transformer_weather_scaler.pkl", "rb") as file:
+            weather_transformer = pickle.load(file)
+
+        forecast_ = PredictFromTransformer(transformer_model, data, weather_data,
+                                           transformer, weather_transformer,
+                                           diff_time, days_ahead=num_days)
 
         forecast_.reset_index().to_feather(forecast_data_path)
 

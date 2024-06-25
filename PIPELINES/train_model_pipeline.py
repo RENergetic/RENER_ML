@@ -41,6 +41,7 @@ def REN_Train_Model_Pipeline(url_pilot:str,
     pilot_name = "Virtual",
     hourly_aggregate = "no",
     minute_aggregate = "no",
+    list_forges = [None],
     forecast_models = "all",
     set_models = "yes",
     num_days: int = 1,
@@ -120,7 +121,9 @@ def REN_Train_Model_Pipeline(url_pilot:str,
                         hourly_aggregate,
                         minute_aggregate,
                         min_date, 
-                        max_date)
+                        max_date,
+                        list_forges,
+                        path_minio, access_key, secret_key)
                         .set_memory_request('2Gi')
                             .set_memory_limit('4Gi')
                             .set_cpu_request('2')

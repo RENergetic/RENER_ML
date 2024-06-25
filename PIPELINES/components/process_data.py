@@ -1,6 +1,6 @@
 from kfp.components import InputPath, OutputPath
 
-def ProcessData(input_data_path: InputPath(str), hourly_aggregate, minute_aggregate ,min_date, max_date, output_data_forecast: OutputPath(str)):
+def ProcessData(input_data_path: InputPath(str), hourly_aggregate, minute_aggregate ,min_date, max_date, list_forges, output_data_forecast: OutputPath(str)):
 
     import maya
     from datetime import datetime
@@ -8,6 +8,8 @@ def ProcessData(input_data_path: InputPath(str), hourly_aggregate, minute_aggreg
     import pandas as pd
     from icecream import ic
     from tqdm import tqdm
+    from minio import Minio
+    import dill
     
     min_date = datetime.strftime(maya.when(min_date).datetime(), "%Y-%m-%d")
     max_date = datetime.strftime(maya.when(max_date).datetime(), "%Y-%m-%d")
@@ -162,6 +164,48 @@ def ProcessData(input_data_path: InputPath(str), hourly_aggregate, minute_aggreg
         
         return output_data
     
+    def DownloadForge(forge_name, url_minio, access_key, secret_key):
+        
+        """
+        
+        Download Forge Class to process (if necessary)
+
+        Input:
+        forge_name -- Name of the class. It is recommended to write it as "{process_name}_v_0_0_1.dill"
+        url_minio
+        access_key
+        secret_key
+
+        Output:
+        Message eithe "Accepted" or "ERROR: {message of error}"
+
+        """
+
+        try:
+            client = Minio(
+                url_minio,
+                access_key=access_key,
+                secret_key=secret_key,
+            )
+
+            bucket_name = "forge-classes"
+
+            client.fget_object(bucket_name,
+                            f"{forge_name}.pkg",
+                            file_path = "forge.pkg")
+
+            return "Accepted"
+        except Exception as e:
+            return f"ERROR: {e}"
+
+    def LoadForge():
+
+        with open('forge.pkg', 'rb') as inp:
+            forge = dill.load(inp)
+
+        return forge
+
+
     if hourly_aggregate in ["mean","sum", "max"]:
         print("hourly process")
         output_data = ProcessHourly(data, hourly_aggregate, min_date, max_date)
@@ -170,6 +214,20 @@ def ProcessData(input_data_path: InputPath(str), hourly_aggregate, minute_aggreg
         output_data = ProcessMinutely(data, minute_aggregate, min_date, max_date)
     else:
         output_data = data
+
+    for forge_name in list_forges:
+        if forge_name != None:
+            message_ = DownloadForge(forge_name)
+            if message_ == "Accepted":
+                try:
+                    forge = LoadForge()
+                    output_data = forge.process(output_data)
+                    ic(forge_name)
+                    ic(output_data.shape[0])
+                except:
+                    print("{forge_name} Failed")
+        
+
 
     
 

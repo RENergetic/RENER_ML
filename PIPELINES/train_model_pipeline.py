@@ -10,11 +10,8 @@ from components.get_data import GetData
 from components.download_weather_data_open_meteo import DownloadWeatherData_OpenMeteo
 from components.download_data_from_influx_db import DownloadDataFromInfluxDB
 from components.calculate_forecast_metrics import CheckLoadModelInList
-from components.utils import Get_List_Assets, GetListofDict, Check
+from components.utils import Get_List_Assets, GetListofDict, Check, CheckForge
 from components.process_data import ProcessData
-
-
-
 
 # NEW Components
 from components.train_forecast_prophet import ForecastProphet
@@ -22,6 +19,9 @@ from components.train_forecast_transformer import ForecastTransformer
 from components.train_forecast_lstm import ForecastLSTM
 from components.compare_models import CheckSetModels
 from components.save_model import SetModel
+
+# FORGE
+from components.train_custom_forecaster import TrainCustomForecaster
 
 def REN_Train_Model_Pipeline(url_pilot:str,
     diff_time:int,
@@ -41,8 +41,10 @@ def REN_Train_Model_Pipeline(url_pilot:str,
     pilot_name = "Virtual",
     hourly_aggregate = "no",
     minute_aggregate = "no",
-    list_forges = [None],
+    list_forges = [None, None],
     forecast_models = "all",
+    custom_models:list = [],
+    load_customs: list = [],
     set_models = "yes",
     num_days: int = 1,
     n_epochs: int = 10,
@@ -58,42 +60,32 @@ def REN_Train_Model_Pipeline(url_pilot:str,
     download_weather_influx_db_op = comp.create_component_from_func(
         DownloadDataFromInfluxDB, output_component_file="weather_influx_db_component.yaml", packages_to_install=["pandas", "pyarrow"]
     )
-
     check_model_list_op = comp.create_component_from_func(
         CheckLoadModelInList, output_component_file= "model_list_component.yaml"
     )
-
     get_list_assets_op = comp.create_component_from_func(
         Get_List_Assets, output_component_file= "get_list_component.yaml"
     )
-    
     get_list_measurements_op = comp.create_component_from_func(GetListofDict, output_component_file="list_dicts_components.yaml")
-
     process_data_op = comp.create_component_from_func(
         ProcessData, packages_to_install= ["maya", "pandas", "icecream", "tqdm"], output_component_file= "process_data_op_component.yaml"
     )
-
-
     train_prophet_op = comp.create_component_from_func(
         ForecastProphet, base_image= "adcarras/ren-docker-forecast:0.0.1",packages_to_install=["fuckit"],output_component_file= "forecast_prophet_component.yaml"
     )
-
     train_transformer_op = comp.create_component_from_func(
         ForecastTransformer, base_image= "adcarras/ren-docker-forecast:0.0.1",packages_to_install=["darts==0.27.2","fuckit"], output_component_file= "forecast_transformer_component.yaml"
     )
-
     train_lstm_op = comp.create_component_from_func(
         ForecastLSTM, base_image= "adcarras/ren-docker-forecast:0.0.1",packages_to_install=["darts==0.27.2","fuckit"], output_component_file= "forecast_lstm_component.yaml"
     )
-
     compare_models_op = comp.create_component_from_func(CheckSetModels, output_component_file="compare_and_set_models.yaml", 
                                                         packages_to_install=["pandas", "scikit-learn", "pyarrow", "icecream"])
-
     check_generic_op = comp.create_component_from_func(Check, output_component_file= "generic_check.yaml")
-
     set_model_op = comp.create_component_from_func(SetModel, packages_to_install=["maya", "minio"], output_component_file="set_models_component.yaml")
-
-
+    
+    check_forge_op = comp.create_component_from_func(CheckForge, output_component_file="forge_check.yaml")
+    train_custom_op = comp.create_component_from_func(TrainCustomForecaster, base_image= "adcarras/ren-docker-forecast:0.0.1", packages_to_install=["dill", "minio"])
     ########## BEGIN PIPELINE DEFINITION  ###############
     
     ### STEP 1: DOWNLOAD WEATHER DATA #######################
@@ -212,6 +204,58 @@ def REN_Train_Model_Pipeline(url_pilot:str,
                 .set_cpu_limit('4')
                 )
 
+            # CUSTOM SIDE - FORGE (1)
+            
+            check_load_forge_one_task = check_forge_op(custom_models, load_customs, 1)
+            forecast_forge_one_task = (
+                train_custom_op(
+                    process_task.output, download_weather_open_meteo_task.output, 
+                    # TS VARS
+                    diff_time, 
+                    num_days,
+                    # TS NAMES
+                    pilot_name,
+                    measurement, 
+                    asset,
+                    # MINIO VARS
+                    path_minio,
+                    access_key,
+                    secret_key,
+                    check_load_forge_one_task.output
+                ).add_env_variable(env_var)
+                .set_memory_request('2Gi')
+                .set_memory_limit('4Gi')
+                .set_cpu_request('2')
+                .set_cpu_limit('4')
+                )
+
+
+            # CUSTOM SIDE - FORGE (2)
+            
+            check_load_forge_two_task = check_forge_op(custom_models, load_customs, 2)
+            forecast_forge_two_task = (
+                train_custom_op(
+                    process_task.output, download_weather_open_meteo_task.output, 
+                    # TS VARS
+                    diff_time, 
+                    num_days,
+                    # TS NAMES
+                    pilot_name,
+                    measurement, 
+                    asset,
+                    # MINIO VARS
+                    path_minio,
+                    access_key,
+                    secret_key,
+                    check_load_forge_two_task.output
+                ).add_env_variable(env_var)
+                .set_memory_request('2Gi')
+                .set_memory_limit('4Gi')
+                .set_cpu_request('2')
+                .set_cpu_limit('4')
+                )
+
+
             # CHECK METRICS
 
             compare_task = compare_models_op(
@@ -219,16 +263,22 @@ def REN_Train_Model_Pipeline(url_pilot:str,
                 forecast_prophet_task.outputs["forecast_data"],
                 forecast_lstm_task.outputs["forecast_data"],
                 forecast_transformer_task.outputs["forecast_data"],
+                forecast_forge_one_task.outputs["forecast_data"],
+                forecast_forge_two_task.outputs["forecast_data"],
+                list_forges,
                 asset
             )
 
             # SAVE MODEL
 
             check_set_task = check_generic_op(set_models, "yes", timestamp)
+
             with dsl.Condition(check_set_task.output == True):
                 prophet_set_check_task = check_generic_op(compare_task.output, "prophet", timestamp)
                 lstm_set_check_task = check_generic_op(compare_task.output, "lstm", timestamp)
                 transformers_set_check_task = check_generic_op(compare_task.output, "transformers", timestamp)
+                forge_one_set_check_task = check_forge_op(compare_task.output,list_forges,1)
+                forge_two_set_check_task = check_forge_op(compare_task.output,list_forges,2)
 
                 with dsl.Condition(prophet_set_check_task.output == True):
                     set_model_task = set_model_op(forecast_prophet_task.outputs["results"],
@@ -246,6 +296,24 @@ def REN_Train_Model_Pipeline(url_pilot:str,
                                                             asset)
                 with dsl.Condition(transformers_set_check_task.output == True):
                     save_model_task = set_model_op(forecast_transformer_task.outputs["results"],
+                                                compare_task.output,
+                                                            path_minio,
+                                                            access_key,
+                                                            secret_key,
+                                                            pilot_name,
+                                                            measurement,
+                                                            asset)
+                with dsl.Condition(forge_one_set_check_task.output == True):
+                    save_model_task = set_model_op(forecast_forge_one_task.outputs["results"],
+                                                compare_task.output,
+                                                            path_minio,
+                                                            access_key,
+                                                            secret_key,
+                                                            pilot_name,
+                                                            measurement,
+                                                            asset)
+                with dsl.Condition(forge_two_set_check_task.output == True):
+                    save_model_task = set_model_op(forecast_forge_two_task.outputs["results"],
                                                 compare_task.output,
                                                             path_minio,
                                                             access_key,

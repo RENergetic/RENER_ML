@@ -4,6 +4,9 @@ def CheckSetModels(input_data_ts_path: InputPath(str),
                     input_data_prophet_path: InputPath(str), 
                    input_data_transformers_path: InputPath(str), 
                    input_data_lstm_path: InputPath(str),
+                   input_data_forge_one_path: InputPath(str),
+                   input_data_forge_two_path: InputPath(str),
+                   list_forges: list,
                    asset_name,
                    metric_name: str = "mae"
                    ) -> str:
@@ -26,6 +29,9 @@ def CheckSetModels(input_data_ts_path: InputPath(str),
             print(e)
 
         return forecast_test
+
+    name_forge_one = list_forges[0]
+    name_forget_two = list_forges[1]
 
     with open(input_data_ts_path) as file:
         data_str = json.load(file)
@@ -61,6 +67,20 @@ def CheckSetModels(input_data_ts_path: InputPath(str),
     
     forecast_test = MergeForecast(forecast_test, input_data_transformers)
 
+    try:
+        input_data_forge_one = pd.read_feather(input_data_forge_one_path)
+    except:
+        input_data_forge_one = pd.DataFrame()
+    
+    forecast_test = MergeForecast(forecast_test, input_data_forge_one)
+
+    try:
+        input_data_forge_two = pd.read_feather(input_data_forge_two_path)
+    except:
+        input_data_forge_two = pd.DataFrame()
+    
+    forecast_test = MergeForecast(forecast_test, input_data_forge_two)
+
     ic(forecast_test.shape)
     ic(forecast_test.columns)
     ic(forecast_test.tail())
@@ -77,6 +97,13 @@ def CheckSetModels(input_data_ts_path: InputPath(str),
     if "yhat_transformers" in forecast_test.columns.values:
         metric_rmse["transformers"] = mean_squared_error(forecast_test.y, forecast_test.yhat_transformer)
         metric_mae["transformers"] = mean_absolute_error(forecast_test.y, forecast_test.yhat_transformer)
+    if f"yhat_{name_forge_one}" in forecast_test.columns.values:
+        metric_rmse[name_forge_one] = mean_squared_error(forecast_test.y, forecast_test[f"yhat_{name_forge_one}"])
+        metric_mae[name_forge_one] = mean_absolute_error(forecast_test.y, forecast_test[f"yhat_{name_forge_one}"])
+    
+    if f"yhat_{name_forge_two}" in forecast_test.columns.values:
+        metric_rmse[name_forge_two] = mean_squared_error(forecast_test.y, forecast_test[f"yhat_{name_forge_two}"])
+        metric_mae[name_forge_two] = mean_absolute_error(forecast_test.y, forecast_test[f"yhat_{name_forge_two}"])
     
     metrics_forecast = {
         "mae": metric_mae,

@@ -99,3 +99,17 @@ def TypeModelParser(model_name:str) -> str:
 
 def Check(option1, option2, timestamp) -> bool:
     return option1 == option2
+
+
+def CheckForge(list_names, list_loads, i) -> list:
+    if len(list_names) <= i:
+        name_model = list_names[i-1]
+    else:
+        name_model = "None"
+    
+    if len(list_loads) <= i:
+        load_model = list_loads[i-1]
+    else:
+        load_model = "No"
+    
+    return [name_model, load_model]

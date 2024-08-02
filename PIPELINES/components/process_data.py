@@ -1,6 +1,6 @@
 from kfp.components import InputPath, OutputPath
 
-def ProcessData(input_data_path: InputPath(str), hourly_aggregate, minute_aggregate ,min_date, max_date, list_forges, output_data_forecast: OutputPath(str)):
+def ProcessData(input_data_path: InputPath(str), hourly_aggregate, minute_aggregate ,min_date, max_date, list_forges, url_minio,access_key, secret_key,output_data_forecast: OutputPath(str)):
 
     import maya
     from datetime import datetime
@@ -217,7 +217,7 @@ def ProcessData(input_data_path: InputPath(str), hourly_aggregate, minute_aggreg
 
     for forge_name in list_forges:
         if forge_name != None:
-            message_ = DownloadForge(forge_name)
+            message_ = DownloadForge(forge_name, url_minio, access_key, secret_key)
             if message_ == "Accepted":
                 try:
                     forge = LoadForge()

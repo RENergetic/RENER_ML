@@ -160,7 +160,6 @@ def Forecast(
 
         return forecast
 
-
     def DownloadModel(client, model_name, type_model):
 
         if type_model == "prophet":

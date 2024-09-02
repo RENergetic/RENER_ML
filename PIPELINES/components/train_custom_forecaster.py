@@ -22,6 +22,15 @@ def TrainCustomForecaster(
     import json
     import pandas as pd
 
+    class Augur:
+        ''' Dynamic class for timeseries forecast '''
+
+        def __init__(self, model_name = None, type_model = None, training_date = None, metric = {}, model = None):
+            self.model_name = model_name
+            self.type_model = type_model
+            self.training_date = training_date
+            self.metric = metric
+            self.model = model
     
     def CustomProcess(
             # MINIO ARGUMENTS
@@ -46,7 +55,7 @@ def TrainCustomForecaster(
                     access_key=access_key,
                     secret_key=secret_key,
                 )
-        if load_custom:
+        if not load_custom:
             bucket_name = "{pilot_name}-augur".format(
                     pilot_name = pilot_name.lower().replace("_", "-")
                 )
@@ -75,20 +84,11 @@ def TrainCustomForecaster(
 
     model_name = list_forge[0]
     load_custom = list_forge[1]
+    augur_custom = Augur(model = model_name)
 
     if model_name == "None":
         print("No custom model selected")
         forecast_ = pd.DataFrame()
-        class Augur:
-            ''' Dynamic class for timeseries forecast '''
-
-            def __init__(self, model_name = None, type_model = None, training_date = None, metric = {}, model = None):
-                self.model_name = model_name
-                self.type_model = type_model
-                self.training_date = training_date
-                self.metric = metric
-                self.model = model
-        augur_custom = Augur(model = "None")
     else:
         with open(input_data_path) as file:
             data_str = json.load(file)
@@ -98,6 +98,7 @@ def TrainCustomForecaster(
         data = data[data.asset_name == asset_name]
 
         weather_data = pd.read_feather(input_weather_path)
+        
 
         try:
             forecast_, augur_custom = CustomProcess(
@@ -116,15 +117,6 @@ def TrainCustomForecaster(
             
         except Exception as e:
             forecast_ = pd.DataFrame()
-            class Augur:
-                ''' Dynamic class for timeseries forecast '''
-
-                def __init__(self, model_name = None, type_model = None, training_date = None, metric = {}, model = None):
-                    self.model_name = model_name
-                    self.type_model = type_model
-                    self.training_date = training_date
-                    self.metric = metric
-                    self.model = model
             augur_custom = Augur(model = "FAIL")
 
             print(f"ERROR: {e}")

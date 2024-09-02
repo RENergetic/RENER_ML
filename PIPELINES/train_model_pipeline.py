@@ -86,6 +86,8 @@ def REN_Train_Model_Pipeline(url_pilot:str,
     
     check_forge_op = comp.create_component_from_func(CheckForge, output_component_file="forge_check.yaml")
     train_custom_op = comp.create_component_from_func(TrainCustomForecaster, base_image= "adcarras/ren-docker-forecast:0.0.1", packages_to_install=["dill", "minio"])
+
+
     ########## BEGIN PIPELINE DEFINITION  ###############
     
     ### STEP 1: DOWNLOAD WEATHER DATA #######################
@@ -274,6 +276,7 @@ def REN_Train_Model_Pipeline(url_pilot:str,
             check_set_task = check_generic_op(set_models, "yes", timestamp)
 
             with dsl.Condition(check_set_task.output == True):
+                
                 prophet_set_check_task = check_generic_op(compare_task.output, "prophet", timestamp)
                 lstm_set_check_task = check_generic_op(compare_task.output, "lstm", timestamp)
                 transformers_set_check_task = check_generic_op(compare_task.output, "transformers", timestamp)

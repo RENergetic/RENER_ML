@@ -166,13 +166,17 @@ def Forecast(
             client.fget_object(bucket_name,
                         model_name,
                         file_path = "model.json")
-        else:
+        elif type_model in ["lstm", "transformers"]:
             client.fget_object(bucket_name,
                         model_name,
                         file_path = "model.pt")
             client.fget_object(bucket_name,
                             model_name + ".ckpt",
                             file_path = "model.pt.ckpt")
+        else:
+            client.fget_object(bucket_name,
+                                "augur_{model_name}.pkl".format(model_name = model_name),
+                                file_path = "augur.pkl")
 
     # BUCKET CONFIG
 
@@ -251,7 +255,13 @@ def Forecast(
 
             forecast_.reset_index().to_feather(forecast_data_path)
 
+        else:
+            with open('augur.pkl', 'rb') as inp:
+                augur_custom = dill.load(inp)
 
+            data, weather_data = augur_custom.process_data_to_forecast(data, weather_data)
+            forecast_ = augur_custom.predict(data, weather_data, diff_time, days_ahead=num_days)
+            forecast_.reset_index().to_feather(forecast_data_path)
 
     except KeyError:
         print("No model is set for this asset in this measurement")

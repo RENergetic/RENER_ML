@@ -83,6 +83,7 @@ def ForecastProcessPipeline(
         path_minio,
         access_key,
         secret_key,
+        list_forges = [None, None],
         num_days_predict: int =1,
         num_days_check: int = 2,
         min_date:str = "2 weeks ago",
@@ -107,15 +108,18 @@ def ForecastProcessPipeline(
                             .set_memory_limit('4Gi')
                             .set_cpu_request('2')
                             .set_cpu_limit('4'))
+
         process_task = (process_data_op(download_task.outputs["output_data_forecast"], 
                         hourly_aggregate,
                         minute_aggregate,
                         min_date, 
-                        max_date)
+                        max_date,
+                        list_forges,
+                        path_minio, access_key, secret_key)
                         .set_memory_request('2Gi')
                             .set_memory_limit('4Gi')
                             .set_cpu_request('2')
-                            .set_cpu_limit('4'))
+                            .set_cpu_limit('4'))   
         
         get_list_task = (get_list_op(measurement, measurements_assets_dict, timestamp))
 

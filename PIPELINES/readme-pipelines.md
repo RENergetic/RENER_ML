@@ -11,10 +11,10 @@ This serves as the description of all the components and functions inside the pi
       <a href="#training">Training</a>
     </li>
     <li>
-      <a href="#how-to-create-a-pipeline-function">Pipeline Functions</a>
+      <a href="#forecast">Forecasting</a>
     </li>
     <li>
-      <a href="#other-considerations">Others</a>
+      <a href="#monitor">Monitor</a>
     </li>
 
   </ol>
